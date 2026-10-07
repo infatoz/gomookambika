@@ -1,4 +1,5 @@
-import { AlertTriangle, Loader2 } from 'lucide-react';
+import { Modal, Button } from 'antd';
+import { WarningOutlined } from '@ant-design/icons';
 
 interface ConfirmDialogProps {
   open: boolean;
@@ -7,66 +8,66 @@ interface ConfirmDialogProps {
   confirmLabel?: string;
   danger?: boolean;
   loading?: boolean;
+  children?: React.ReactNode;
   onConfirm: () => void;
   onCancel: () => void;
 }
 
 export function ConfirmDialog({
   open, title, message, confirmLabel = 'Confirm',
-  danger = true, loading = false, onConfirm, onCancel,
+  danger = true, loading = false, children, onConfirm, onCancel,
 }: ConfirmDialogProps) {
-  if (!open) return null;
-
   return (
-    <div
-      className="modal-backdrop"
-      style={{ zIndex: 200 }}
-      onClick={onCancel}
+    <Modal
+      open={open}
+      onCancel={onCancel}
+      footer={null}
+      width={400}
+      centered
+      mask={{ closable: !loading }}
+      closable={!loading}
+      styles={{ body: { padding: '1.5rem' } }}
     >
-      <div
-        className="modal-panel animate-scale-in"
-        style={{ maxWidth: '380px' }}
-        onClick={e => e.stopPropagation()}
-      >
-        <div style={{ padding: '1.5rem' }}>
-          {/* Icon */}
-          <div style={{
-            width: '44px', height: '44px', borderRadius: '12px',
-            background: danger ? '#FEF2F2' : '#FFFBEB',
-            border: `1px solid ${danger ? '#FECACA' : '#FDE68A'}`,
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            marginBottom: '1rem',
-          }}>
-            <AlertTriangle size={20} style={{ color: danger ? '#DC2626' : '#D97706' }} />
-          </div>
-
-          {/* Text */}
-          <h3 style={{ fontSize: '0.9375rem', fontWeight: 700, color: 'var(--text-heading)', marginBottom: '0.5rem' }}>
-            {title}
-          </h3>
-          <p style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', lineHeight: 1.6 }}>
-            {message}
-          </p>
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '1rem' }}>
+        {/* Icon */}
+        <div style={{
+          width: '44px', height: '44px', borderRadius: '12px',
+          background: danger ? '#FEF2F2' : '#FFFBEB',
+          border: `1px solid ${danger ? '#FECACA' : '#FDE68A'}`,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>
+          <WarningOutlined style={{ fontSize: '20px', color: danger ? '#DC2626' : '#D97706' }} />
         </div>
 
-        {/* Actions */}
-        <div className="modal-footer" style={{ justifyContent: 'flex-end', gap: '0.5rem' }}>
-          <button onClick={onCancel} disabled={loading} className="btn-secondary">
+        <div style={{ width: '100%' }}>
+          <div style={{ fontSize: '0.9375rem', fontWeight: 700, color: '#111827', marginBottom: '0.5rem' }}>
+            {title}
+          </div>
+          <div style={{ fontSize: '0.8125rem', color: '#6B7280', lineHeight: 1.6 }}>
+            {message}
+          </div>
+          {children && (
+            <div style={{ marginTop: '0.875rem' }}>
+              {children}
+            </div>
+          )}
+        </div>
+
+        <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', width: '100%', paddingTop: '0.5rem', borderTop: '1px solid #F1F5F9' }}>
+          <Button onClick={onCancel} disabled={loading}>
             Cancel
-          </button>
-          <button
+          </Button>
+          <Button
+            type="primary"
+            danger={danger}
+            loading={loading}
             onClick={onConfirm}
-            disabled={loading}
-            className={danger ? 'btn-danger' : 'btn-primary'}
             style={{ minWidth: '100px' }}
           >
-            {loading
-              ? <><Loader2 size={14} className="animate-spin" /> Please wait...</>
-              : confirmLabel
-            }
-          </button>
+            {confirmLabel}
+          </Button>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }

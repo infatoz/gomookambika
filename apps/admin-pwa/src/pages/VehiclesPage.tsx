@@ -1,14 +1,21 @@
-﻿import { useState, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  Plus, Edit2, Trash2, AlertCircle, Loader2, Car, X,
-} from 'lucide-react';
+  Table, Button, Tag, Space, Input, Select, Form,
+  Row, Col, Typography, Tooltip, Switch, Checkbox,
+} from 'antd';
+import {
+  PlusOutlined, EditOutlined, DeleteOutlined,
+  SearchOutlined, FilterOutlined, CarOutlined, UndoOutlined,
+} from '@ant-design/icons';
+import type { ColumnsType, TablePaginationConfig } from 'antd/es/table';
 import apiClient from '@/lib/apiClient';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { toast } from '@/components/Toast';
 import { Drawer } from '@/components/Drawer';
 import { Field, FormGrid, FormSection } from '@/components/Modal';
-import { SearchInput, FilterSelect, SortHeader, Pagination, TableSkeleton } from '@/components/TableControls';
+
+const { Title, Text } = Typography;
 
 interface Vehicle {
   _id: string; registrationNumber: string; brand: string; vehicleModel: string;
@@ -20,17 +27,12 @@ interface Vehicle {
 interface VehicleCategory { _id: string; name: string; code: string; }
 interface DriverOption    { _id: string; name: string; phone: string; driverCode: string; }
 
-const STATUS_BADGE: Record<string, string> = {
-  ACTIVE: 'badge-active', INACTIVE: 'badge-inactive',
-  MAINTENANCE: 'badge-warning', SUSPENDED: 'badge-suspended',
+const STATUS_COLOR: Record<string, string> = {
+  ACTIVE: 'success', INACTIVE: 'default', MAINTENANCE: 'warning', SUSPENDED: 'error',
 };
 
-const FUEL_STYLE: Record<string, { bg: string; color: string; border: string }> = {
-  PETROL:   { bg:'#FFF7ED', color:'#9A3412', border:'#FED7AA' },
-  DIESEL:   { bg:'#F8FAFC', color:'#475569', border:'#E2E8F0' },
-  CNG:      { bg:'#F0FDF4', color:'#166534', border:'#BBF7D0' },
-  ELECTRIC: { bg:'#EFF6FF', color:'#1E40AF', border:'#BFDBFE' },
-  HYBRID:   { bg:'#F5F3FF', color:'#5B21B6', border:'#DDD6FE' },
+const FUEL_COLOR: Record<string, string> = {
+  PETROL: 'orange', DIESEL: 'default', CNG: 'green', ELECTRIC: 'blue', HYBRID: 'purple',
 };
 
 const EMPTY_FORM = {
@@ -38,46 +40,36 @@ const EMPTY_FORM = {
   color: 'White', fuelType: 'DIESEL', seatCapacity: 4, luggageCapacity: 2, ac: true,
   ownerName: '', categoryId: '', assignedDriverId: '', status: 'ACTIVE',
 };
-
-function ToggleSwitch({ value, onChange, label }: { value: boolean; onChange: () => void; label: string }) {
-  return (
-    <label style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', cursor: 'pointer' }}>
-      <div onClick={onChange} className={`toggle-track ${value ? 'on' : 'off'}`}>
-        <div className="toggle-thumb" />
-      </div>
-      <span style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', userSelect: 'none' }}>{label}</span>
-    </label>
-  );
-}
+const LIMIT = 15;
 
 export function VehiclesPage() {
   const qc = useQueryClient();
   const [page, setPage]               = useState(1);
   const [search, setSearch]           = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState('ACTIVE');
   const [catFilter, setCatFilter]     = useState('');
-  const [sort, setSort]               = useState({ field: 'registrationNumber', dir: 'asc' as 'asc' | 'desc' });
   const [drawerOpen, setDrawerOpen]   = useState(false);
   const [editTarget, setEditTarget]   = useState<Vehicle | null>(null);
   const [form, setForm]               = useState(EMPTY_FORM);
   const [saving, setSaving]           = useState(false);
   const [formError, setFormError]     = useState('');
-  const [deleteTarget, setDeleteTarget] = useState<Vehicle | null>(null);
-  const [deleting, setDeleting]       = useState(false);
-  const LIMIT = 15;
+  const [deleteTarget, setDeleteTarget]       = useState<Vehicle | null>(null);
+  const [permanentDelete, setPermanentDelete] = useState(false);
+  const [deleting, setDeleting]               = useState(false);
+  const [reactivatingId, setReactivatingId]   = useState<string | null>(null);
+  const [purgeOpen, setPurgeOpen]             = useState(false);
+  const [purging, setPurging]                 = useState(false);
 
   const { data, isLoading } = useQuery({
-    queryKey: ['admin-vehicles', page, search, statusFilter, catFilter, sort],
+    queryKey: ['admin-vehicles', page, search, statusFilter, catFilter],
     queryFn: async () => {
       const p = new URLSearchParams({ page: String(page), limit: String(LIMIT) });
       if (search)       p.set('search', search);
       if (statusFilter) p.set('status', statusFilter);
       if (catFilter)    p.set('categoryId', catFilter);
-      p.set('sortBy', sort.field); p.set('sortOrder', sort.dir);
       const res = await apiClient.get(`/admin/vehicles?${p}`);
       return res.data;
     },
-    
   });
 
   const { data: catData } = useQuery<VehicleCategory[]>({
@@ -91,15 +83,10 @@ export function VehiclesPage() {
   });
 
   const vehicles: Vehicle[] = data?.data ?? [];
-  const meta       = data?.meta ?? data?.pagination ?? { total: 0, totalPages: 1 };
+  const meta = data?.meta ?? data?.pagination ?? { total: 0, totalPages: 1 };
   const categories = catData ?? [];
   const drivers    = driversData ?? [];
   const refresh    = useCallback(() => qc.invalidateQueries({ queryKey: ['admin-vehicles'] }), [qc]);
-
-  const toggleSort = (field: string) => {
-    setSort(s => s.field === field ? { field, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { field, dir: 'asc' });
-    setPage(1);
-  };
 
   const openCreate = () => { setEditTarget(null); setForm(EMPTY_FORM); setFormError(''); setDrawerOpen(true); };
   const openEdit = (v: Vehicle) => {
@@ -141,156 +128,234 @@ export function VehiclesPage() {
     if (!deleteTarget) return;
     setDeleting(true);
     try {
-      await apiClient.delete(`/admin/vehicles/${deleteTarget._id}`);
-      toast('Vehicle deactivated');
-      setDeleteTarget(null); refresh();
+      const isPerm = permanentDelete || deleteTarget.status === 'INACTIVE';
+      await apiClient.delete(`/admin/vehicles/${deleteTarget._id}${isPerm ? '?permanent=true' : ''}`);
+      toast(isPerm ? 'Vehicle permanently deleted' : 'Vehicle deactivated');
+      setDeleteTarget(null);
+      setPermanentDelete(false);
+      refresh();
     } catch (e: unknown) {
       const err = e as { response?: { data?: { message?: string } } };
-      toast(err.response?.data?.message ?? 'Failed to deactivate vehicle', 'error');
+      toast(err.response?.data?.message ?? (permanentDelete ? 'Failed to permanently delete vehicle' : 'Failed to deactivate vehicle'), 'error');
     } finally { setDeleting(false); }
   };
 
-  const hasFilters = search || statusFilter || catFilter;
+  const handleReactivate = async (v: Vehicle) => {
+    setReactivatingId(v._id);
+    try {
+      await apiClient.patch(`/admin/vehicles/${v._id}`, { status: 'ACTIVE' });
+      toast(`"${v.registrationNumber}" reactivated`);
+      refresh();
+    } catch (e: unknown) {
+      const err = e as { response?: { data?: { message?: string } } };
+      toast(err.response?.data?.message ?? 'Failed to reactivate vehicle', 'error');
+    } finally { setReactivatingId(null); }
+  };
+
+  const handlePurge = async () => {
+    setPurging(true);
+    try {
+      const res = await apiClient.delete('/admin/vehicles/purge-inactive');
+      toast(res.data?.message ?? 'Inactive vehicles purged successfully');
+      setPurgeOpen(false);
+      refresh();
+    } catch (e: unknown) {
+      const err = e as { response?: { data?: { message?: string } } };
+      toast(err.response?.data?.message ?? 'Failed to purge inactive vehicles', 'error');
+    } finally { setPurging(false); }
+  };
+
+  const columns: ColumnsType<Vehicle> = [
+    {
+      title: 'Registration',
+      dataIndex: 'registrationNumber',
+      sorter: true,
+      render: (val: string) => (
+        <Text code style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.04em' }}>{val}</Text>
+      ),
+    },
+    {
+      title: 'Brand / Model',
+      render: (_: unknown, r: Vehicle) => (
+        <div>
+          <div style={{ fontWeight: 600, color: '#111827' }}>{r.brand}</div>
+          <Text type="secondary" style={{ fontSize: 12 }}>{r.vehicleModel} · {r.manufacturingYear}</Text>
+        </div>
+      ),
+    },
+    {
+      title: 'Category',
+      render: (_: unknown, r: Vehicle) => r.categoryId
+        ? <Tag color="geekblue" style={{ fontWeight: 500 }}>{r.categoryId.name}</Tag>
+        : <Text type="secondary">—</Text>,
+    },
+    {
+      title: 'Fuel',
+      dataIndex: 'fuelType',
+      render: (val: string) => <Tag color={FUEL_COLOR[val] ?? 'default'}>{val}</Tag>,
+    },
+    {
+      title: 'Specs',
+      render: (_: unknown, r: Vehicle) => (
+        <Space size={4}>
+          <Tag style={{ fontSize: 11 }}>{r.seatCapacity} seats</Tag>
+          {r.ac && <Tag color="blue" style={{ fontSize: 11 }}>AC</Tag>}
+        </Space>
+      ),
+    },
+    {
+      title: 'Driver',
+      render: (_: unknown, r: Vehicle) => r.assignedDriverId
+        ? <Text style={{ fontSize: 13 }}>{(r.assignedDriverId as { name: string }).name}</Text>
+        : <Text type="secondary" style={{ fontSize: 12 }}>Unassigned</Text>,
+    },
+    {
+      title: 'Status',
+      dataIndex: 'status',
+      render: (val: string) => <Tag color={STATUS_COLOR[val] ?? 'default'}>{val}</Tag>,
+    },
+    {
+      title: 'Actions',
+      align: 'right',
+      render: (_: unknown, r: Vehicle) => (
+        <Space size={4}>
+          <Tooltip title="Edit vehicle">
+            <Button icon={<EditOutlined />} size="small" onClick={() => openEdit(r)} />
+          </Tooltip>
+          {r.status === 'INACTIVE' ? (
+            <>
+              <Tooltip title="Reactivate vehicle">
+                <Button
+                  icon={<UndoOutlined />}
+                  size="small"
+                  style={{ color: '#059669', borderColor: '#A7F3D0' }}
+                  loading={reactivatingId === r._id}
+                  onClick={() => handleReactivate(r)}
+                />
+              </Tooltip>
+              <Tooltip title="Permanently delete from database">
+                <Button
+                  icon={<DeleteOutlined />}
+                  size="small"
+                  danger
+                  type="primary"
+                  onClick={() => { setDeleteTarget(r); setPermanentDelete(true); }}
+                />
+              </Tooltip>
+            </>
+          ) : (
+            <Tooltip title="Deactivate vehicle">
+              <Button
+                icon={<DeleteOutlined />}
+                size="small"
+                danger
+                onClick={() => { setDeleteTarget(r); setPermanentDelete(false); }}
+              />
+            </Tooltip>
+          )}
+        </Space>
+      ),
+    },
+  ];
+
+  const handleTableChange = (pagination: TablePaginationConfig) => {
+    setPage(pagination.current ?? 1);
+  };
 
   return (
     <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-
+      {/* Header */}
       <div className="page-header">
         <div>
-          <h1 className="page-title">Vehicles</h1>
-          <p className="page-subtitle">{meta.total ?? 0} vehicles registered</p>
+          <Title level={4} style={{ margin: 0, color: '#111827' }}>Vehicles</Title>
+          <Text type="secondary">{meta.total ?? 0} vehicles registered</Text>
         </div>
-        <button onClick={openCreate} className="btn-primary">
-          <Plus size={14} /> Add Vehicle
-        </button>
+        <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
+          Add Vehicle
+        </Button>
       </div>
 
-      <div className="filter-bar">
-        <SearchInput value={search} onChange={v => { setSearch(v); setPage(1); }} placeholder="Reg. no, brand, model..." />
-        <FilterSelect
-          value={catFilter} onChange={v => { setCatFilter(v); setPage(1); }}
+      {/* Filter bar */}
+      <div style={{
+        display: 'flex', gap: '0.75rem', alignItems: 'center',
+        background: '#fff', padding: '0.75rem 1rem',
+        borderRadius: 12, border: '1.5px solid #E8ECF0',
+        boxShadow: '0 1px 3px rgba(15,23,42,0.05)',
+      }}>
+        <Input
+          prefix={<SearchOutlined style={{ color: '#9CA3AF' }} />}
+          placeholder="Reg. no, brand, model..."
+          value={search}
+          onChange={e => { setSearch(e.target.value); setPage(1); }}
+          allowClear
+          style={{ maxWidth: 260 }}
+        />
+        <Select
+          value={catFilter || undefined}
+          onChange={v => { setCatFilter(v ?? ''); setPage(1); }}
           placeholder="All Types"
+          allowClear
+          style={{ minWidth: 160 }}
+          suffixIcon={<FilterOutlined />}
           options={categories.map(c => ({ value: c._id, label: c.name }))}
         />
-        <FilterSelect
-          value={statusFilter} onChange={v => { setStatusFilter(v); setPage(1); }}
+        <Select
+          value={statusFilter || undefined}
+          onChange={v => { setStatusFilter(v ?? ''); setPage(1); }}
           placeholder="All Statuses"
-          options={Object.keys(STATUS_BADGE).map(s => ({ value: s, label: s }))}
+          allowClear
+          style={{ minWidth: 150 }}
+          options={Object.keys(STATUS_COLOR).map(s => ({ value: s, label: s }))}
         />
-        {hasFilters && (
-          <button onClick={() => { setSearch(''); setStatusFilter(''); setCatFilter(''); setPage(1); }} className="btn-ghost" style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', whiteSpace: 'nowrap' }}>
-            <X size={13} /> Clear
-          </button>
+        {statusFilter === 'INACTIVE' && vehicles.length > 0 && (
+          <Button
+            danger
+            icon={<DeleteOutlined />}
+            onClick={() => setPurgeOpen(true)}
+            style={{ marginLeft: 'auto' }}
+          >
+            Purge All Inactive ({vehicles.length})
+          </Button>
         )}
       </div>
 
-      <div className="card" style={{ overflow: 'hidden', padding: 0 }}>
-        <table className="data-table">
-          <thead>
-            <tr>
-              <SortHeader label="Registration" field="registrationNumber" sort={sort} onSort={toggleSort} />
-              <SortHeader label="Brand / Model" field="brand" sort={sort} onSort={toggleSort} />
-              <th>Category</th>
-              <th>Fuel</th>
-              <th>Specs</th>
-              <th>Driver</th>
-              <SortHeader label="Status" field="status" sort={sort} onSort={toggleSort} />
-              <th style={{ textAlign: 'right', paddingRight: '1.25rem' }}>Actions</th>
-            </tr>
-          </thead>
-          {isLoading ? (
-            <TableSkeleton rows={6} cols={8} />
-          ) : vehicles.length === 0 ? (
-            <tbody>
-              <tr>
-                <td colSpan={8}>
-                  <div className="empty-state">
-                    <div className="empty-state-icon"><Car size={24} style={{ color: 'var(--brand-600)' }} /></div>
-                    <div style={{ fontSize: '0.9375rem', fontWeight: 600, color: 'var(--text-heading)', marginBottom: '0.375rem' }}>No vehicles found</div>
-                    <div style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', marginBottom: '1.25rem' }}>
-                      {hasFilters ? 'Try adjusting your filters' : 'Add your first vehicle to get started'}
-                    </div>
-                    {!hasFilters && <button onClick={openCreate} className="btn-primary"><Plus size={14} /> Add Vehicle</button>}
-                  </div>
-                </td>
-              </tr>
-            </tbody>
-          ) : (
-            <tbody>
-              {vehicles.map(v => {
-                const fs = FUEL_STYLE[v.fuelType] ?? FUEL_STYLE.DIESEL;
-                return (
-                  <tr key={v._id}>
-                    <td>
-                      <code style={{ fontSize: '0.8125rem', fontWeight: 700, color: 'var(--text-heading)', letterSpacing: '0.03em' }}>
-                        {v.registrationNumber}
-                      </code>
-                    </td>
-                    <td>
-                      <div style={{ fontWeight: 500, color: 'var(--text-heading)', fontSize: '0.875rem' }}>
-                        {v.brand}
-                      </div>
-                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                        {v.vehicleModel} Â· {v.manufacturingYear}
-                      </div>
-                    </td>
-                    <td>
-                      {v.categoryId ? (
-                        <span style={{
-                          display: 'inline-flex', padding: '0.2rem 0.625rem', borderRadius: '999px',
-                          fontSize: '0.6875rem', fontWeight: 600,
-                          background: 'var(--brand-50)', color: 'var(--brand-700)', border: '1px solid var(--brand-100)',
-                        }}>
-                          {v.categoryId.name}
-                        </span>
-                      ) : <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>â€”</span>}
-                    </td>
-                    <td>
-                      <span style={{
-                        display: 'inline-flex', padding: '0.2rem 0.5rem', borderRadius: '6px',
-                        fontSize: '0.6875rem', fontWeight: 600,
-                        background: fs.bg, color: fs.color, border: `1px solid ${fs.border}`,
-                      }}>
-                        {v.fuelType}
-                      </span>
-                    </td>
-                    <td>
-                      <div style={{ display: 'flex', gap: '0.25rem', flexWrap: 'wrap' }}>
-                        <span style={{ fontSize: '0.6875rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
-                          {v.seatCapacity} seats
-                        </span>
-                        {v.ac && <span style={{ fontSize: '0.6875rem', color: '#1D4ED8', background: '#EFF6FF', padding: '0.1rem 0.375rem', borderRadius: '4px', border: '1px solid #BFDBFE' }}>AC</span>}
-                      </div>
-                    </td>
-                    <td>
-                      {v.assignedDriverId ? (
-                        <div>
-                          <div style={{ fontSize: '0.8125rem', color: 'var(--text-heading)', fontWeight: 500 }}>
-                            {(v.assignedDriverId as { name: string }).name}
-                          </div>
-                        </div>
-                      ) : (
-                        <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Unassigned</span>
-                      )}
-                    </td>
-                    <td>
-                      <span className={`badge ${STATUS_BADGE[v.status] ?? 'badge-inactive'}`}>{v.status}</span>
-                    </td>
-                    <td>
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '0.375rem', paddingRight: '0.25rem' }}>
-                        <button onClick={() => openEdit(v)} className="btn-icon primary" title="Edit vehicle"><Edit2 size={13} /></button>
-                        <button onClick={() => setDeleteTarget(v)} className="btn-icon danger" title="Deactivate vehicle"><Trash2 size={13} /></button>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          )}
-        </table>
-        <Pagination page={page} totalPages={meta.totalPages ?? 1} total={meta.total ?? 0} limit={LIMIT} onPage={setPage} />
+      {/* Table */}
+      <div style={{ background: '#fff', borderRadius: 12, border: '1.5px solid #E8ECF0', overflow: 'hidden', boxShadow: '0 1px 3px rgba(15,23,42,0.05)' }}>
+        <Table
+          columns={columns}
+          dataSource={vehicles}
+          rowKey="_id"
+          loading={isLoading}
+          onChange={handleTableChange}
+          pagination={{
+            current: page,
+            pageSize: LIMIT,
+            total: meta.total ?? 0,
+            showTotal: (t, r) => `${r[0]}–${r[1]} of ${t} vehicles`,
+            showSizeChanger: false,
+            style: { padding: '12px 16px', margin: 0 },
+          }}
+          size="small"
+          locale={{
+            emptyText: (
+              <div style={{ padding: '3rem 1rem', textAlign: 'center' }}>
+                <CarOutlined style={{ fontSize: 32, color: '#C7D2FE', marginBottom: 12 }} />
+                <div style={{ fontWeight: 600, color: '#374151', marginBottom: 6 }}>No vehicles found</div>
+                <div style={{ color: '#9CA3AF', fontSize: 13, marginBottom: 16 }}>
+                  {search || statusFilter || catFilter ? 'Try adjusting your filters' : 'Register your first vehicle to get started'}
+                </div>
+                {!search && !statusFilter && !catFilter && (
+                  <Button type="primary" icon={<PlusOutlined />} onClick={openCreate} size="small">
+                    Add Vehicle
+                  </Button>
+                )}
+              </div>
+            ),
+          }}
+        />
       </div>
 
+      {/* Drawer */}
       <Drawer
         open={drawerOpen} onClose={() => setDrawerOpen(false)}
         title={editTarget ? 'Edit Vehicle' : 'Add Vehicle'}
@@ -298,17 +363,16 @@ export function VehiclesPage() {
         width={520}
         footer={
           <>
-            <button onClick={() => setDrawerOpen(false)} className="btn-secondary">Cancel</button>
-            <button onClick={handleSave} disabled={saving} className="btn-primary">
-              {saving ? <><Loader2 size={14} className="animate-spin" /> Saving...</> : editTarget ? 'Update Vehicle' : 'Add Vehicle'}
-            </button>
+            <Button onClick={() => setDrawerOpen(false)}>Cancel</Button>
+            <Button type="primary" loading={saving} onClick={handleSave}>
+              {editTarget ? 'Update Vehicle' : 'Add Vehicle'}
+            </Button>
           </>
         }
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
           {formError && (
-            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem', padding: '0.75rem 1rem', borderRadius: '8px', background: '#FEF2F2', border: '1px solid #FECACA', color: '#991B1B', fontSize: '0.8125rem' }}>
-              <AlertCircle size={14} style={{ flexShrink: 0, marginTop: '0.1rem' }} />
+            <div style={{ padding: '0.75rem 1rem', borderRadius: 8, background: '#FEF2F2', border: '1px solid #FECACA', color: '#991B1B', fontSize: 13 }}>
               {formError}
             </div>
           )}
@@ -350,13 +414,13 @@ export function VehiclesPage() {
               </Field>
               <Field label="Status">
                 <select className="input-field" value={form.status} onChange={e => sf('status', e.target.value)}>
-                  {Object.keys(STATUS_BADGE).map(s => <option key={s}>{s}</option>)}
+                  {Object.keys(STATUS_COLOR).map(s => <option key={s}>{s}</option>)}
                 </select>
               </Field>
             </FormGrid>
           </FormSection>
 
-          <FormSection title="Capacity">
+          <FormSection title="Capacity & Comfort">
             <FormGrid cols={2}>
               <Field label="Seat Capacity">
                 <input type="number" min={1} max={60} className="input-field" value={form.seatCapacity} onChange={e => sf('seatCapacity', +e.target.value)} />
@@ -365,7 +429,10 @@ export function VehiclesPage() {
                 <input type="number" min={0} className="input-field" value={form.luggageCapacity} onChange={e => sf('luggageCapacity', +e.target.value)} />
               </Field>
             </FormGrid>
-            <ToggleSwitch value={form.ac} onChange={() => sf('ac', !form.ac)} label="Air Conditioned" />
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginTop: '0.5rem' }}>
+              <Switch checked={form.ac} onChange={v => sf('ac', v)} size="small" />
+              <span style={{ fontSize: 14, color: '#4B5563' }}>Air Conditioned</span>
+            </div>
           </FormSection>
 
           <FormSection title="Ownership & Assignment">
@@ -375,7 +442,7 @@ export function VehiclesPage() {
             <Field label="Assign Driver" hint="Only available drivers are shown">
               <select className="input-field" value={form.assignedDriverId} onChange={e => sf('assignedDriverId', e.target.value)}>
                 <option value="">Unassigned</option>
-                {drivers.map(d => <option key={d._id} value={d._id}>{d.name} â€” {d.driverCode}</option>)}
+                {drivers.map(d => <option key={d._id} value={d._id}>{d.name} — {d.driverCode}</option>)}
               </select>
             </Field>
           </FormSection>
@@ -383,13 +450,53 @@ export function VehiclesPage() {
       </Drawer>
 
       <ConfirmDialog
-        open={!!deleteTarget} danger
-        title="Deactivate Vehicle"
-        message={`Deactivate "${deleteTarget?.registrationNumber} â€“ ${deleteTarget?.brand} ${deleteTarget?.vehicleModel}"? It will be marked as INACTIVE.`}
-        confirmLabel="Deactivate"
+        open={!!deleteTarget}
+        danger
+        title={
+          permanentDelete || deleteTarget?.status === 'INACTIVE'
+            ? 'Permanently Delete Vehicle'
+            : 'Deactivate Vehicle'
+        }
+        message={
+          permanentDelete || deleteTarget?.status === 'INACTIVE'
+            ? `Are you sure you want to permanently delete vehicle "${deleteTarget?.registrationNumber}" (${deleteTarget?.brand} ${deleteTarget?.vehicleModel})? This will completely remove it from the database and cannot be undone.`
+            : `Deactivate "${deleteTarget?.registrationNumber} – ${deleteTarget?.brand} ${deleteTarget?.vehicleModel}"? It will be marked as INACTIVE.`
+        }
+        confirmLabel={
+          permanentDelete || deleteTarget?.status === 'INACTIVE'
+            ? 'Delete Permanently'
+            : 'Deactivate'
+        }
         loading={deleting}
         onConfirm={handleDelete}
-        onCancel={() => setDeleteTarget(null)}
+        onCancel={() => { setDeleteTarget(null); setPermanentDelete(false); }}
+      >
+        {deleteTarget?.status !== 'INACTIVE' && (
+          <div style={{
+            padding: '0.625rem 0.75rem', borderRadius: 8,
+            background: '#FEF2F2', border: '1px solid #FECACA',
+          }}>
+            <Checkbox
+              checked={permanentDelete}
+              onChange={e => setPermanentDelete(e.target.checked)}
+            >
+              <span style={{ fontSize: 13, fontWeight: 600, color: '#991B1B' }}>
+                Permanently delete from database instead (irreversible)
+              </span>
+            </Checkbox>
+          </div>
+        )}
+      </ConfirmDialog>
+
+      <ConfirmDialog
+        open={purgeOpen}
+        danger
+        title="Purge All Inactive Vehicles"
+        message="Permanently delete all inactive vehicles from the database? Vehicles with ongoing trips or queue entries will be safely preserved."
+        confirmLabel="Purge Inactive"
+        loading={purging}
+        onConfirm={handlePurge}
+        onCancel={() => setPurgeOpen(false)}
       />
     </div>
   );

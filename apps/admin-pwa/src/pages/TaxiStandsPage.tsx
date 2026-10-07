@@ -1,15 +1,23 @@
-﻿import { useState, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  Plus, Edit2, Trash2, AlertCircle, Loader2,
-  QrCode, Download, RefreshCw, Building2, X,
-} from 'lucide-react';
+  Table, Button, Tag, Space, Input, Select, Typography,
+  Tooltip, Modal, Image, Checkbox,
+} from 'antd';
+import {
+  PlusOutlined, EditOutlined, DeleteOutlined,
+  SearchOutlined, FilterOutlined, QrcodeOutlined,
+  DownloadOutlined, ReloadOutlined, HomeOutlined, UndoOutlined,
+  EnvironmentOutlined,
+} from '@ant-design/icons';
+import type { ColumnsType, TablePaginationConfig } from 'antd/es/table';
 import apiClient from '@/lib/apiClient';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { toast } from '@/components/Toast';
 import { Drawer } from '@/components/Drawer';
 import { Field, FormGrid, FormSection } from '@/components/Modal';
-import { SearchInput, FilterSelect, SortHeader, Pagination, TableSkeleton } from '@/components/TableControls';
+
+const { Title, Text } = Typography;
 
 interface TaxiStand {
   _id: string; name: string; status: string; qrStatus: string; qrGeneratedAt?: string;
@@ -17,47 +25,62 @@ interface TaxiStand {
   locationId: { _id: string; name: string; code: string };
   allowedVehicleCategories: Array<{ _id: string; name: string; code: string }>;
 }
-interface LocationOption  { _id: string; name: string; code: string; }
+interface LocationOption {
+  _id: string;
+  name: string;
+  code: string;
+  type?: string;
+  address?: {
+    line1?: string;
+    city?: string;
+    state?: string;
+  };
+  status?: string;
+}
 interface CategoryOption  { _id: string; name: string; code: string; }
 
 const EMPTY_FORM = {
   name: '', locationId: '', queueRadius: 150, maxQueueSize: 50,
   allowedVehicleCategories: [] as string[], status: 'ACTIVE',
 };
+const LIMIT = 15;
 
 export function TaxiStandsPage() {
   const qc = useQueryClient();
-  const [page, setPage]               = useState(1);
-  const [search, setSearch]           = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
-  const [sort, setSort]               = useState({ field: 'name', dir: 'asc' as 'asc' | 'desc' });
-  const [drawerOpen, setDrawerOpen]   = useState(false);
-  const [editTarget, setEditTarget]   = useState<TaxiStand | null>(null);
-  const [form, setForm]               = useState(EMPTY_FORM);
-  const [saving, setSaving]           = useState(false);
-  const [formError, setFormError]     = useState('');
-  const [deleteTarget, setDeleteTarget] = useState<TaxiStand | null>(null);
-  const [deleting, setDeleting]       = useState(false);
-  const [qrData, setQrData]           = useState<{ standName: string; url: string } | null>(null);
-  const [qrLoading, setQrLoading]     = useState<string | null>(null);
-  const LIMIT = 15;
+  const [page, setPage]             = useState(1);
+  const [search, setSearch]         = useState('');
+  const [statusFilter, setStatusFilter] = useState('ACTIVE');
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [editTarget, setEditTarget] = useState<TaxiStand | null>(null);
+  const [form, setForm]             = useState(EMPTY_FORM);
+  const [saving, setSaving]         = useState(false);
+  const [formError, setFormError]   = useState('');
+  const [deleteTarget, setDeleteTarget]       = useState<TaxiStand | null>(null);
+  const [permanentDelete, setPermanentDelete] = useState(false);
+  const [deleting, setDeleting]               = useState(false);
+  const [reactivatingId, setReactivatingId]   = useState<string | null>(null);
+  const [purgeOpen, setPurgeOpen]             = useState(false);
+  const [purging, setPurging]                 = useState(false);
+  const [qrData, setQrData]         = useState<{ standName: string; url: string } | null>(null);
+  const [qrLoading, setQrLoading]   = useState<string | null>(null);
 
   const { data, isLoading } = useQuery({
-    queryKey: ['admin-taxi-stands', page, search, statusFilter, sort],
+    queryKey: ['admin-taxi-stands', page, search, statusFilter],
     queryFn: async () => {
       const p = new URLSearchParams({ page: String(page), limit: String(LIMIT) });
       if (search)       p.set('search', search);
       if (statusFilter) p.set('status', statusFilter);
-      p.set('sortBy', sort.field); p.set('sortOrder', sort.dir);
       const r = await apiClient.get(`/admin/taxi-stands?${p}`);
       return r.data;
     },
-    
   });
 
-  const { data: locationsData } = useQuery<LocationOption[]>({
-    queryKey: ['locations-list'],
-    queryFn: async () => { const r = await apiClient.get('/admin/locations?limit=200'); return r.data?.data ?? []; },
+  const { data: locationsData, isLoading: locationsLoading } = useQuery<LocationOption[]>({
+    queryKey: ['active-locations-list'],
+    queryFn: async () => {
+      const r = await apiClient.get('/admin/locations?status=ACTIVE&limit=1000');
+      return r.data?.data ?? [];
+    },
   });
 
   const { data: catData } = useQuery<CategoryOption[]>({
@@ -65,16 +88,24 @@ export function TaxiStandsPage() {
     queryFn: async () => { const r = await apiClient.get('/admin/vehicle-categories'); return r.data?.data ?? []; },
   });
 
-  const stands    = data?.data ?? [];
-  const meta      = data?.meta ?? { total: 0, totalPages: 1 };
-  const locations = locationsData ?? [];
-  const categories = catData ?? [];
-  const refresh   = useCallback(() => qc.invalidateQueries({ queryKey: ['admin-taxi-stands'] }), [qc]);
-
-  const toggleSort = (field: string) => {
-    setSort(s => s.field === field ? { field, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { field, dir: 'asc' });
-    setPage(1);
-  };
+  const stands        = data?.data ?? [];
+  const meta          = data?.meta ?? { total: 0, totalPages: 1 };
+  const rawLocations  = locationsData ?? [];
+  // Ensure that if editing a taxi stand whose location is inactive, it's still available in the dropdown
+  const locations: LocationOption[] = [...rawLocations];
+  if (
+    editTarget?.locationId?._id &&
+    !locations.some(l => l._id === editTarget.locationId._id)
+  ) {
+    locations.unshift({
+      _id: editTarget.locationId._id,
+      name: editTarget.locationId.name,
+      code: editTarget.locationId.code,
+      status: 'INACTIVE',
+    });
+  }
+  const categories    = catData ?? [];
+  const refresh       = useCallback(() => qc.invalidateQueries({ queryKey: ['admin-taxi-stands'] }), [qc]);
 
   const openCreate = () => { setEditTarget(null); setForm(EMPTY_FORM); setFormError(''); setDrawerOpen(true); };
   const openEdit = (s: TaxiStand) => {
@@ -96,8 +127,8 @@ export function TaxiStandsPage() {
   }));
 
   const handleSave = async () => {
-    if (!form.name.trim())   { setFormError('Stand name is required'); return; }
-    if (!form.locationId)    { setFormError('Please select a location'); return; }
+    if (!form.name.trim()) { setFormError('Stand name is required'); return; }
+    if (!form.locationId)  { setFormError('Please select a location'); return; }
     setSaving(true); setFormError('');
     try {
       if (editTarget) {
@@ -118,13 +149,41 @@ export function TaxiStandsPage() {
     if (!deleteTarget) return;
     setDeleting(true);
     try {
-      await apiClient.delete(`/admin/taxi-stands/${deleteTarget._id}`);
-      toast('Taxi stand deactivated');
-      setDeleteTarget(null); refresh();
+      const isPerm = permanentDelete || deleteTarget.status === 'INACTIVE';
+      await apiClient.delete(`/admin/taxi-stands/${deleteTarget._id}${isPerm ? '?permanent=true' : ''}`);
+      toast(isPerm ? 'Taxi stand permanently deleted' : 'Taxi stand deactivated');
+      setDeleteTarget(null);
+      setPermanentDelete(false);
+      refresh();
     } catch (e: unknown) {
       const err = e as { response?: { data?: { message?: string } } };
-      toast(err.response?.data?.message ?? 'Failed to deactivate taxi stand', 'error');
+      toast(err.response?.data?.message ?? (permanentDelete ? 'Failed to permanently delete taxi stand' : 'Failed to deactivate taxi stand'), 'error');
     } finally { setDeleting(false); }
+  };
+
+  const handleReactivate = async (stand: TaxiStand) => {
+    setReactivatingId(stand._id);
+    try {
+      await apiClient.patch(`/admin/taxi-stands/${stand._id}`, { status: 'ACTIVE' });
+      toast(`"${stand.name}" reactivated`);
+      refresh();
+    } catch (e: unknown) {
+      const err = e as { response?: { data?: { message?: string } } };
+      toast(err.response?.data?.message ?? 'Failed to reactivate taxi stand', 'error');
+    } finally { setReactivatingId(null); }
+  };
+
+  const handlePurge = async () => {
+    setPurging(true);
+    try {
+      const res = await apiClient.delete('/admin/taxi-stands/purge-inactive');
+      toast(res.data?.message ?? 'Inactive taxi stands purged successfully');
+      setPurgeOpen(false);
+      refresh();
+    } catch (e: unknown) {
+      const err = e as { response?: { data?: { message?: string } } };
+      toast(err.response?.data?.message ?? 'Failed to purge inactive taxi stands', 'error');
+    } finally { setPurging(false); }
   };
 
   const handleRegenerateQR = async (stand: TaxiStand) => {
@@ -138,311 +197,398 @@ export function TaxiStandsPage() {
     finally { setQrLoading(null); }
   };
 
-  const hasFilters = search || statusFilter;
+  const columns: ColumnsType<TaxiStand> = [
+    {
+      title: 'Stand Name',
+      render: (_: unknown, s: TaxiStand) => (
+        <div>
+          <div style={{ fontWeight: 600, color: '#111827' }}>{s.name}</div>
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            {s.locationId?.name ?? '—'} · {s.queueRadius}m radius
+          </Text>
+        </div>
+      ),
+    },
+    {
+      title: 'Location',
+      render: (_: unknown, s: TaxiStand) => s.locationId
+        ? <Tag color="geekblue">{s.locationId.code}</Tag>
+        : <Text type="secondary">—</Text>,
+    },
+    {
+      title: 'Vehicle Types',
+      render: (_: unknown, s: TaxiStand) => (
+        <Space size={4} wrap>
+          {s.allowedVehicleCategories?.length
+            ? s.allowedVehicleCategories.map(c => <Tag key={c._id} style={{ fontSize: 11 }}>{c.name}</Tag>)
+            : <Text type="secondary" style={{ fontSize: 12 }}>All types</Text>
+          }
+        </Space>
+      ),
+    },
+    {
+      title: 'Max Queue',
+      dataIndex: 'maxQueueSize',
+      align: 'center',
+      render: (val: number) => <Text strong>{val ?? '—'}</Text>,
+    },
+    {
+      title: 'QR',
+      dataIndex: 'qrStatus',
+      render: (val: string) => <Tag color={val === 'ACTIVE' ? 'success' : 'default'}>{val ?? 'NONE'}</Tag>,
+    },
+    {
+      title: 'Status',
+      dataIndex: 'status',
+      render: (val: string) => <Tag color={val === 'ACTIVE' ? 'success' : 'default'}>{val}</Tag>,
+    },
+    {
+      title: 'Actions',
+      align: 'right',
+      render: (_: unknown, s: TaxiStand) => (
+        <Space size={4}>
+          <Tooltip title="Edit stand">
+            <Button icon={<EditOutlined />} size="small" onClick={() => openEdit(s)} />
+          </Tooltip>
+          <Tooltip title="Regenerate QR code">
+            <Button
+              icon={<ReloadOutlined spin={qrLoading === s._id} />}
+              size="small"
+              onClick={() => handleRegenerateQR(s)}
+              loading={qrLoading === s._id}
+            />
+          </Tooltip>
+          {s.status === 'INACTIVE' ? (
+            <>
+              <Tooltip title="Reactivate taxi stand">
+                <Button
+                  icon={<UndoOutlined />}
+                  size="small"
+                  style={{ color: '#059669', borderColor: '#A7F3D0' }}
+                  loading={reactivatingId === s._id}
+                  onClick={() => handleReactivate(s)}
+                />
+              </Tooltip>
+              <Tooltip title="Permanently delete from database">
+                <Button
+                  icon={<DeleteOutlined />}
+                  size="small"
+                  danger
+                  type="primary"
+                  onClick={() => { setDeleteTarget(s); setPermanentDelete(true); }}
+                />
+              </Tooltip>
+            </>
+          ) : (
+            <Tooltip title="Deactivate stand">
+              <Button
+                icon={<DeleteOutlined />}
+                size="small"
+                danger
+                onClick={() => { setDeleteTarget(s); setPermanentDelete(false); }}
+              />
+            </Tooltip>
+          )}
+        </Space>
+      ),
+    },
+  ];
 
   return (
     <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
 
-      {/* Header */}
       <div className="page-header">
         <div>
-          <h1 className="page-title">Taxi Stands</h1>
-          <p className="page-subtitle">{meta.total ?? 0} stands configured</p>
+          <Title level={4} style={{ margin: 0, color: '#111827' }}>Taxi Stands</Title>
+          <Text type="secondary">{meta.total ?? 0} stands configured</Text>
         </div>
-        <button onClick={openCreate} className="btn-primary">
-          <Plus size={14} /> Add Stand
-        </button>
+        <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>Add Stand</Button>
       </div>
 
       {/* Filter bar */}
-      <div className="filter-bar">
-        <SearchInput
+      <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', background: '#fff', padding: '0.75rem 1rem', borderRadius: 12, border: '1.5px solid #E8ECF0', boxShadow: '0 1px 3px rgba(15,23,42,0.05)' }}>
+        <Input
+          prefix={<SearchOutlined style={{ color: '#9CA3AF' }} />}
+          placeholder="Search stand name..."
           value={search}
-          onChange={v => { setSearch(v); setPage(1); }}
-          placeholder="Search stands by name or location..."
+          onChange={e => { setSearch(e.target.value); setPage(1); }}
+          allowClear
+          style={{ maxWidth: 280 }}
         />
-        <FilterSelect
-          value={statusFilter}
-          onChange={v => { setStatusFilter(v); setPage(1); }}
+        <Select
+          value={statusFilter || undefined}
+          onChange={v => { setStatusFilter(v ?? ''); setPage(1); }}
           placeholder="All Statuses"
+          allowClear
+          style={{ minWidth: 150 }}
+          suffixIcon={<FilterOutlined />}
           options={[{ value: 'ACTIVE', label: 'Active' }, { value: 'INACTIVE', label: 'Inactive' }]}
         />
-        {hasFilters && (
-          <button onClick={() => { setSearch(''); setStatusFilter(''); setPage(1); }} className="btn-ghost" style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', whiteSpace: 'nowrap' }}>
-            <X size={13} /> Clear
-          </button>
+        {statusFilter === 'INACTIVE' && stands.length > 0 && (
+          <Button
+            danger
+            icon={<DeleteOutlined />}
+            onClick={() => setPurgeOpen(true)}
+            style={{ marginLeft: 'auto' }}
+          >
+            Purge All Inactive ({stands.length})
+          </Button>
         )}
       </div>
 
       {/* Table */}
-      <div className="card" style={{ overflow: 'hidden', padding: 0 }}>
-        <table className="data-table">
-          <thead>
-            <tr>
-              <SortHeader label="Stand Name"   field="name"        sort={sort} onSort={toggleSort} />
-              <SortHeader label="Location"     field="locationId"  sort={sort} onSort={toggleSort} />
-              <th>Vehicle Types</th>
-              <SortHeader label="Radius" field="queueRadius" sort={sort} onSort={toggleSort} />
-              <th>Max Queue</th>
-              <th>QR</th>
-              <SortHeader label="Status" field="status" sort={sort} onSort={toggleSort} />
-              <th style={{ textAlign: 'right', paddingRight: '1.25rem' }}>Actions</th>
-            </tr>
-          </thead>
-          {isLoading ? (
-            <TableSkeleton rows={6} cols={8} />
-          ) : stands.length === 0 ? (
-            <tbody>
-              <tr>
-                <td colSpan={8}>
-                  <div className="empty-state">
-                    <div className="empty-state-icon">
-                      <Building2 size={24} style={{ color: 'var(--brand-600)' }} />
-                    </div>
-                    <div style={{ fontSize: '0.9375rem', fontWeight: 600, color: 'var(--text-heading)', marginBottom: '0.375rem' }}>
-                      No taxi stands found
-                    </div>
-                    <div style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', marginBottom: '1.25rem' }}>
-                      {hasFilters ? 'Try adjusting your filters' : 'Add your first taxi stand to get started'}
-                    </div>
-                    {!hasFilters && (
-                      <button onClick={openCreate} className="btn-primary">
-                        <Plus size={14} /> Add Stand
-                      </button>
-                    )}
-                  </div>
-                </td>
-              </tr>
-            </tbody>
-          ) : (
-            <tbody>
-              {stands.map((stand: TaxiStand) => (
-                <tr key={stand._id}>
-                  <td>
-                    <div style={{ fontWeight: 600, color: 'var(--text-heading)', fontSize: '0.875rem' }}>{stand.name}</div>
-                  </td>
-                  <td>
-                    <div style={{ fontSize: '0.8125rem', color: 'var(--text-secondary)', fontWeight: 500 }}>
-                      {stand.locationId?.name || 'â€”'}
-                    </div>
-                    <div style={{ fontSize: '0.6875rem', color: 'var(--text-muted)', fontFamily: 'monospace' }}>
-                      {stand.locationId?.code}
-                    </div>
-                  </td>
-                  <td>
-                    <div style={{ display: 'flex', gap: '0.25rem', flexWrap: 'wrap', maxWidth: '180px' }}>
-                      {stand.allowedVehicleCategories?.length > 0
-                        ? stand.allowedVehicleCategories.map(cat => (
-                          <span key={cat._id} style={{
-                            display: 'inline-flex', padding: '0.15rem 0.5rem',
-                            borderRadius: '999px', fontSize: '0.6rem', fontWeight: 600,
-                            background: 'var(--brand-50)', color: 'var(--brand-700)',
-                            border: '1px solid var(--brand-100)',
-                          }}>
-                            {cat.name}
-                          </span>
-                        ))
-                        : <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>All types</span>
-                      }
-                    </div>
-                  </td>
-                  <td style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-secondary)' }}>
-                    {stand.queueRadius}m
-                  </td>
-                  <td style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
-                    {stand.maxQueueSize ?? 'â€”'}
-                  </td>
-                  <td>
-                    <span style={{
-                      display: 'inline-flex', padding: '0.2rem 0.5rem', borderRadius: '5px',
-                      fontSize: '0.6875rem', fontWeight: 600,
-                      background: stand.qrStatus === 'ACTIVE' ? '#EEF2FF' : '#F8FAFC',
-                      color: stand.qrStatus === 'ACTIVE' ? 'var(--brand-700)' : 'var(--text-muted)',
-                      border: `1px solid ${stand.qrStatus === 'ACTIVE' ? 'var(--brand-200)' : 'var(--border)'}`,
-                    }}>
-                      {stand.qrStatus}
-                    </span>
-                  </td>
-                  <td>
-                    <span className={`badge ${stand.status === 'ACTIVE' ? 'badge-active' : 'badge-inactive'}`}>
-                      {stand.status}
-                    </span>
-                  </td>
-                  <td>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '0.375rem', paddingRight: '0.25rem' }}>
-                      <button onClick={() => openEdit(stand)} className="btn-icon primary" title="Edit stand">
-                        <Edit2 size={13} />
-                      </button>
-                      <button
-                        onClick={() => handleRegenerateQR(stand)}
-                        disabled={qrLoading === stand._id}
-                        className="btn-icon"
-                        title="Regenerate QR Code"
-                        style={{ color: 'var(--brand-600)' }}
-                      >
-                        {qrLoading === stand._id
-                          ? <RefreshCw size={13} className="animate-spin" />
-                          : <QrCode size={13} />
-                        }
-                      </button>
-                      <button onClick={() => setDeleteTarget(stand)} className="btn-icon danger" title="Deactivate stand">
-                        <Trash2 size={13} />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          )}
-        </table>
-        <Pagination
-          page={page} totalPages={meta.totalPages ?? 1}
-          total={meta.total ?? 0} limit={LIMIT}
-          onPage={setPage}
+      <div style={{ background: '#fff', borderRadius: 12, border: '1.5px solid #E8ECF0', overflow: 'hidden', boxShadow: '0 1px 3px rgba(15,23,42,0.05)' }}>
+        <Table
+          columns={columns}
+          dataSource={stands}
+          rowKey="_id"
+          loading={isLoading}
+          onChange={(p: TablePaginationConfig) => setPage(p.current ?? 1)}
+          pagination={{
+            current: page, pageSize: LIMIT, total: meta.total ?? 0,
+            showTotal: (t, r) => `${r[0]}–${r[1]} of ${t} stands`,
+            showSizeChanger: false,
+            style: { padding: '12px 16px', margin: 0 },
+          }}
+          size="small"
+          locale={{
+            emptyText: (
+              <div style={{ padding: '3rem 1rem', textAlign: 'center' }}>
+                <HomeOutlined style={{ fontSize: 32, color: '#C7D2FE', marginBottom: 12 }} />
+                <div style={{ fontWeight: 600, color: '#374151', marginBottom: 6 }}>No taxi stands found</div>
+                <div style={{ color: '#9CA3AF', fontSize: 13, marginBottom: 16 }}>
+                  {search || statusFilter ? 'Try adjusting filters' : 'Create your first taxi stand'}
+                </div>
+                {!search && !statusFilter && (
+                  <Button type="primary" icon={<PlusOutlined />} onClick={openCreate} size="small">Add Stand</Button>
+                )}
+              </div>
+            ),
+          }}
         />
       </div>
 
-      {/* â”€â”€ DRAWER â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+      {/* QR Modal */}
+      <Modal
+        open={!!qrData}
+        onCancel={() => setQrData(null)}
+        footer={null}
+        centered
+        title={<><QrcodeOutlined /> QR Code — {qrData?.standName}</>}
+        width={360}
+      >
+        {qrData?.url && (
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1rem', padding: '1rem 0' }}>
+            <Image src={qrData.url} width={200} preview={false} style={{ border: '4px solid #F1F5F9', borderRadius: 12 }} />
+            <Button
+              type="primary"
+              icon={<DownloadOutlined />}
+              onClick={() => {
+                const a = document.createElement('a');
+                a.href = qrData.url; a.download = `${qrData.standName}-qr.png`; a.click();
+              }}
+            >
+              Download QR
+            </Button>
+          </div>
+        )}
+      </Modal>
+
+      {/* Drawer */}
       <Drawer
-        open={drawerOpen}
-        onClose={() => setDrawerOpen(false)}
-        title={editTarget ? 'Edit Taxi Stand' : 'New Taxi Stand'}
-        subtitle={editTarget ? `Editing: ${editTarget.name}` : 'Configure a queue stand linked to a location'}
+        open={drawerOpen} onClose={() => setDrawerOpen(false)}
+        title={editTarget ? 'Edit Taxi Stand' : 'Add Taxi Stand'}
+        subtitle={editTarget ? `Editing: ${editTarget.name}` : 'Configure a new taxi stand'}
+        width={500}
         footer={
           <>
-            <button onClick={() => setDrawerOpen(false)} className="btn-secondary">Cancel</button>
-            <button onClick={handleSave} disabled={saving} className="btn-primary">
-              {saving ? <><Loader2 size={14} className="animate-spin" /> Saving...</> : editTarget ? 'Update Stand' : 'Create Stand'}
-            </button>
+            <Button onClick={() => setDrawerOpen(false)}>Cancel</Button>
+            <Button type="primary" loading={saving} onClick={handleSave}>
+              {editTarget ? 'Update Stand' : 'Create Stand'}
+            </Button>
           </>
         }
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
           {formError && (
-            <div style={{
-              display: 'flex', alignItems: 'flex-start', gap: '0.5rem',
-              padding: '0.75rem 1rem', borderRadius: '8px',
-              background: '#FEF2F2', border: '1px solid #FECACA', color: '#991B1B', fontSize: '0.8125rem',
-            }}>
-              <AlertCircle size={14} style={{ flexShrink: 0, marginTop: '0.1rem' }} />
-              {formError}
-            </div>
+            <div style={{ padding: '0.75rem 1rem', borderRadius: 8, background: '#FEF2F2', border: '1px solid #FECACA', color: '#991B1B', fontSize: 13 }}>{formError}</div>
           )}
 
           <FormSection title="Stand Details">
-            <Field label="Stand Name" required>
-              <input className="input-field" placeholder="e.g. Main Bus Stop Stand A"
-                value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
+            <Field label="Stand Name" required hint={!form.name && !editTarget ? 'Can auto-fill after selecting location' : undefined}>
+              <input
+                className="input-field"
+                placeholder="e.g. Main Bus Stand Gate 1"
+                value={form.name}
+                onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+              />
             </Field>
-            <Field label="Location" required hint="The parent location this stand belongs to">
-              <select className="input-field" value={form.locationId}
-                onChange={e => setForm(f => ({ ...f, locationId: e.target.value }))}>
-                <option value="">Select a location...</option>
-                {locations.map(l => (
-                  <option key={l._id} value={l._id}>{l.name} ({l.code})</option>
-                ))}
-              </select>
+            <Field
+              label="Location"
+              required
+              hint={
+                locationsLoading
+                  ? 'Loading active locations...'
+                  : `${locations.length} active location${locations.length === 1 ? '' : 's'} available`
+              }
+            >
+              <Select
+                showSearch
+                value={form.locationId || undefined}
+                placeholder="Search active locations by name, code, city..."
+                loading={locationsLoading}
+                allowClear
+                style={{ width: '100%' }}
+                size="middle"
+                onChange={val => {
+                  setForm(f => {
+                    const next = { ...f, locationId: val ?? '' };
+                    if (!editTarget && !f.name && val) {
+                      const sel = locations.find(l => l._id === val);
+                      if (sel) next.name = `${sel.name} Stand`;
+                    }
+                    return next;
+                  });
+                }}
+                filterOption={(input, option) => {
+                  const searchStr = String(option?.searchValue ?? '');
+                  return searchStr.toLowerCase().includes(input.toLowerCase());
+                }}
+                options={locations.map(l => ({
+                  value: l._id,
+                  label: `${l.name} (${l.code})${l.address?.city ? ` · ${l.address.city}` : ''}`,
+                  searchValue: `${l.name} ${l.code} ${l.address?.city ?? ''} ${l.address?.line1 ?? ''} ${l.type ?? ''}`,
+                  raw: l,
+                }))}
+                optionRender={option => {
+                  const l = (option.data as { raw: LocationOption }).raw;
+                  return (
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '2px 0' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, overflow: 'hidden' }}>
+                        <EnvironmentOutlined style={{ color: '#4F46E5', fontSize: 13, flexShrink: 0 }} />
+                        <span style={{ fontWeight: 600, color: '#111827', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {l.name}
+                        </span>
+                        <Tag color="geekblue" style={{ fontSize: 10, lineHeight: '18px', padding: '0 4px', margin: 0 }}>
+                          {l.code}
+                        </Tag>
+                        {l.status === 'INACTIVE' && (
+                          <Tag color="default" style={{ fontSize: 10, lineHeight: '18px', padding: '0 4px', margin: 0 }}>
+                            Inactive
+                          </Tag>
+                        )}
+                      </div>
+                      {l.address?.city && (
+                        <span style={{ fontSize: 12, color: '#6B7280', flexShrink: 0, marginLeft: 8 }}>
+                          {l.address.city}
+                        </span>
+                      )}
+                    </div>
+                  );
+                }}
+                notFoundContent={
+                  locationsLoading ? 'Loading locations...' : 'No active locations found'
+                }
+              />
             </Field>
+          </FormSection>
+
+          <FormSection title="Queue Settings">
+            <FormGrid cols={2}>
+              <Field label="Queue Radius (m)">
+                <input type="number" min={10} max={2000} className="input-field" value={form.queueRadius} onChange={e => setForm(f => ({ ...f, queueRadius: +e.target.value }))} />
+              </Field>
+              <Field label="Max Queue Size">
+                <input type="number" min={1} className="input-field" value={form.maxQueueSize} onChange={e => setForm(f => ({ ...f, maxQueueSize: +e.target.value }))} />
+              </Field>
+            </FormGrid>
             <Field label="Status">
-              <select className="input-field" value={form.status}
-                onChange={e => setForm(f => ({ ...f, status: e.target.value }))}>
+              <select className="input-field" value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))}>
                 <option value="ACTIVE">Active</option>
                 <option value="INACTIVE">Inactive</option>
               </select>
             </Field>
           </FormSection>
 
-          <FormSection title="Queue Configuration">
-            <FormGrid cols={2}>
-              <Field label="Queue Radius (m)" hint="Geo-fence radius in metres">
-                <input type="number" min={10} max={2000} className="input-field"
-                  value={form.queueRadius} onChange={e => setForm(f => ({ ...f, queueRadius: +e.target.value }))} />
-              </Field>
-              <Field label="Max Queue Size" hint="Maximum drivers in queue">
-                <input type="number" min={1} max={500} className="input-field"
-                  value={form.maxQueueSize} onChange={e => setForm(f => ({ ...f, maxQueueSize: +e.target.value }))} />
-              </Field>
-            </FormGrid>
-          </FormSection>
-
           <FormSection title="Allowed Vehicle Types">
-            {categories.length === 0 ? (
-              <div style={{
-                padding: '0.875rem', borderRadius: '8px', background: 'var(--bg-surface-3)',
-                border: '1px solid var(--border)', fontSize: '0.8125rem', color: 'var(--text-muted)', textAlign: 'center',
-              }}>
-                No vehicle categories â€” create them in Vehicle Types first.
-              </div>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.375rem', maxHeight: '220px', overflowY: 'auto' }}>
-                {categories.map(cat => {
-                  const checked = form.allowedVehicleCategories.includes(cat._id);
-                  return (
-                    <label key={cat._id} style={{
-                      display: 'flex', alignItems: 'center', gap: '0.75rem',
-                      padding: '0.625rem 0.75rem', borderRadius: '8px',
-                      border: `1.5px solid ${checked ? 'var(--brand-200)' : 'var(--border)'}`,
-                      background: checked ? 'var(--brand-50)' : 'transparent',
-                      cursor: 'pointer', transition: 'all 0.12s',
-                    }}>
-                      <input type="checkbox" checked={checked} onChange={() => toggleCategory(cat._id)}
-                        style={{ width: '15px', height: '15px', accentColor: 'var(--brand-600)', cursor: 'pointer' }} />
-                      <span style={{ fontSize: '0.875rem', color: 'var(--text-primary)', fontWeight: checked ? 600 : 400, flex: 1 }}>
-                        {cat.name}
-                      </span>
-                      <code style={{ fontSize: '0.6875rem', color: 'var(--text-muted)', fontFamily: 'monospace' }}>
-                        {cat.code}
-                      </code>
-                    </label>
-                  );
-                })}
-              </div>
-            )}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+              {categories.length === 0
+                ? <Text type="secondary" style={{ fontSize: 13 }}>No categories loaded</Text>
+                : categories.map(c => {
+                    const selected = form.allowedVehicleCategories.includes(c._id);
+                    return (
+                      <button
+                        key={c._id}
+                        type="button"
+                        onClick={() => toggleCategory(c._id)}
+                        style={{
+                          padding: '0.3rem 0.75rem', borderRadius: 20, fontSize: 12, fontWeight: 500, cursor: 'pointer',
+                          border: selected ? '1.5px solid #4F46E5' : '1.5px solid #E8ECF0',
+                          background: selected ? '#EEF2FF' : '#F8FAFC', color: selected ? '#4338CA' : '#6B7280',
+                          transition: 'all 0.12s',
+                        }}
+                      >
+                        {c.name}
+                      </button>
+                    );
+                  })
+              }
+            </div>
+            <Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: '0.5rem' }}>
+              Leave empty to allow all vehicle types
+            </Text>
           </FormSection>
         </div>
       </Drawer>
 
-      {/* QR Modal */}
-      {qrData && (
-        <div className="modal-backdrop" onClick={() => setQrData(null)} style={{ zIndex: 100 }}>
-          <div className="modal-panel animate-scale-in" style={{ maxWidth: '340px' }} onClick={e => e.stopPropagation()}>
-            <div className="modal-header">
-              <div>
-                <div className="modal-header-title">{qrData.standName}</div>
-                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
-                  Drivers scan to join queue
-                </div>
-              </div>
-              <button onClick={() => setQrData(null)} className="btn-icon" style={{ border: 'none', background: 'transparent' }}>
-                <X size={15} />
-              </button>
-            </div>
-            <div className="modal-body" style={{ display: 'flex', justifyContent: 'center' }}>
-              {qrData.url
-                ? <img src={qrData.url} alt="QR Code" style={{ width: '200px', height: '200px', borderRadius: '12px', border: '1px solid var(--border)' }} />
-                : <div style={{ width: '200px', height: '200px', background: 'var(--bg-surface-3)', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)', fontSize: '0.875rem' }}>No QR data</div>
-              }
-            </div>
-            <div className="modal-footer">
-              <button onClick={() => setQrData(null)} className="btn-secondary">Close</button>
-              {qrData.url && (
-                <a href={qrData.url} download={`${qrData.standName}-qr.png`} className="btn-primary" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.375rem' }}>
-                  <Download size={13} /> Download
-                </a>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
       <ConfirmDialog
-        open={!!deleteTarget} danger
-        title="Deactivate Taxi Stand"
-        message={`Deactivate "${deleteTarget?.name}"? Drivers will no longer be able to join this stand's queue.`}
-        confirmLabel="Deactivate"
+        open={!!deleteTarget}
+        danger
+        title={
+          permanentDelete || deleteTarget?.status === 'INACTIVE'
+            ? 'Permanently Delete Taxi Stand'
+            : 'Deactivate Taxi Stand'
+        }
+        message={
+          permanentDelete || deleteTarget?.status === 'INACTIVE'
+            ? `Are you sure you want to permanently delete "${deleteTarget?.name}"? This will completely remove it from the database and cannot be undone.`
+            : `Deactivate "${deleteTarget?.name}"? The queue at this stand will be cleared.`
+        }
+        confirmLabel={
+          permanentDelete || deleteTarget?.status === 'INACTIVE'
+            ? 'Delete Permanently'
+            : 'Deactivate'
+        }
         loading={deleting}
         onConfirm={handleDelete}
-        onCancel={() => setDeleteTarget(null)}
+        onCancel={() => { setDeleteTarget(null); setPermanentDelete(false); }}
+      >
+        {deleteTarget?.status !== 'INACTIVE' && (
+          <div style={{
+            padding: '0.625rem 0.75rem', borderRadius: 8,
+            background: '#FEF2F2', border: '1px solid #FECACA',
+          }}>
+            <Checkbox
+              checked={permanentDelete}
+              onChange={e => setPermanentDelete(e.target.checked)}
+            >
+              <span style={{ fontSize: 13, fontWeight: 600, color: '#991B1B' }}>
+                Permanently delete from database instead (irreversible)
+              </span>
+            </Checkbox>
+          </div>
+        )}
+      </ConfirmDialog>
+
+      <ConfirmDialog
+        open={purgeOpen}
+        danger
+        title="Purge All Inactive Taxi Stands"
+        message="Permanently delete all inactive taxi stands from the database? Taxi stands with active queue entries will be safely preserved."
+        confirmLabel="Purge Inactive"
+        loading={purging}
+        onConfirm={handlePurge}
+        onCancel={() => setPurgeOpen(false)}
       />
     </div>
   );

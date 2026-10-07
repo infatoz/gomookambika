@@ -1,297 +1,830 @@
-import { useState, useEffect, useCallback } from 'react';
-import { apiClient } from '@/lib/apiClient';
+import { useState, useCallback, useMemo } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  Table,
+  Button,
+  Tag,
+  Space,
+  Input,
+  Select,
+  Typography,
+  Tooltip,
+  Card,
+  Row,
+  Col,
+  Switch,
+  Badge,
+} from 'antd';
+import {
+  SearchOutlined,
+  ReloadOutlined,
+  FilterOutlined,
+  EyeOutlined,
+  PrinterOutlined,
+  EnvironmentOutlined,
+  UserOutlined,
+  CarOutlined,
+  CheckCircleOutlined,
+  ClockCircleOutlined,
+  CloseCircleOutlined,
+  WalletOutlined,
+  SwapOutlined,
+  CompassOutlined,
+  FileTextOutlined,
+  DollarCircleOutlined,
+} from '@ant-design/icons';
+import type { ColumnsType, TablePaginationConfig } from 'antd/es/table';
+import apiClient from '@/lib/apiClient';
+import { Drawer } from '@/components/Drawer';
+import { ETicketModal, BookingTicketData } from '@/components/ETicketModal';
 
-interface Booking {
+const { Title, Text } = Typography;
+
+interface VehicleCategory {
   _id: string;
-  bookingNumber: string;
-  status: string;
-  tripType: string;
-  customerId: { name: string; phone: string };
-  pickupLocation: { address: string };
-  dropLocation?: { address: string };
-  vehicleCategoryId: { name: string; code: string };
-  fareSnapshot?: { total: number; currency: string };
-  paymentStatus: string;
-  paymentOption: string;
-  scheduledAt?: string;
-  createdAt: string;
-  assignedDriverId?: { name: string; phone: string };
+  name: string;
+  code: string;
 }
 
-const STATUS_COLORS: Record<string, string> = {
-  PENDING: 'text-yellow-400 bg-yellow-400/10',
-  CONFIRMED: 'text-blue-400 bg-blue-400/10',
-  DRIVER_ASSIGNED: 'text-indigo-400 bg-indigo-400/10',
-  EN_ROUTE: 'text-cyan-400 bg-cyan-400/10',
-  ARRIVED: 'text-teal-400 bg-teal-400/10',
-  TRIP_STARTED: 'text-green-400 bg-green-400/10',
-  COMPLETED: 'text-emerald-500 bg-emerald-500/10',
-  CANCELLED: 'text-red-400 bg-red-400/10',
-  EXPIRED: 'text-gray-400 bg-gray-400/10',
+interface BookingStats {
+  total: number;
+  live: number;
+  completed: number;
+  cancelled: number;
+  totalRevenue: number;
+}
+
+const STATUS_CONFIG: Record<string, { color: string; label: string; isLive?: boolean }> = {
+  PENDING: { color: 'gold', label: 'Pending Dispatch' },
+  CONFIRMED: { color: 'blue', label: 'Confirmed', isLive: true },
+  DRIVER_ASSIGNED: { color: 'purple', label: 'Driver Assigned', isLive: true },
+  EN_ROUTE: { color: 'cyan', label: 'Driver En Route', isLive: true },
+  ARRIVED: { color: 'geekblue', label: 'Driver Arrived', isLive: true },
+  TRIP_STARTED: { color: 'processing', label: 'Trip In Progress', isLive: true },
+  COMPLETED: { color: 'success', label: 'Completed' },
+  CANCELLED: { color: 'error', label: 'Cancelled' },
+  EXPIRED: { color: 'default', label: 'Expired' },
 };
 
-const PAYMENT_COLORS: Record<string, string> = {
-  PAID: 'text-green-400',
-  PENDING: 'text-yellow-400',
-  FAILED: 'text-red-400',
-  REFUNDED: 'text-purple-400',
+const PAYMENT_COLOR: Record<string, string> = {
+  PAID: 'success',
+  PENDING: 'warning',
+  FAILED: 'error',
+  REFUNDED: 'purple',
 };
 
 export function BookingsPage() {
-  const [bookings, setBookings] = useState<Booking[]>([]);
-  const [loading, setLoading] = useState(true);
+  const qc = useQueryClient();
+
+  // Filters & Search
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [tripTypeFilter, setTripTypeFilter] = useState('');
+  const [paymentStatusFilter, setPaymentStatusFilter] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState('');
+  const [autoRefresh, setAutoRefresh] = useState(true);
+
+  // Pagination
   const [page, setPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
-  const [total, setTotal] = useState(0);
-  const [selected, setSelected] = useState<Booking | null>(null);
+  const [pageSize, setPageSize] = useState(15);
 
-  const fetchBookings = useCallback(async () => {
-    setLoading(true);
-    try {
-      const params = new URLSearchParams({ page: String(page), limit: '20' });
-      if (search) params.set('search', search);
-      if (statusFilter) params.set('status', statusFilter);
-      const res = await apiClient.get(`/admin/bookings?${params}`);
-      setBookings(res.data?.data ?? []);
-      setTotalPages(res.data?.pagination?.totalPages ?? 1);
-      setTotal(res.data?.pagination?.total ?? 0);
-    } finally {
-      setLoading(false);
-    }
-  }, [page, search, statusFilter]);
+  // Selected for Details Drawer & E-Ticket Modal
+  const [drawerBooking, setDrawerBooking] = useState<BookingTicketData | null>(null);
+  const [eTicketBooking, setETicketBooking] = useState<BookingTicketData | null>(null);
 
-  useEffect(() => { fetchBookings(); }, [fetchBookings]);
+  // 1. Fetch Categories for filter
+  const { data: categories = [] } = useQuery<VehicleCategory[]>({
+    queryKey: ['vehicle-categories-booking-filter'],
+    queryFn: async () => {
+      const res = await apiClient.get('/admin/vehicle-categories');
+      return res.data?.data ?? [];
+    },
+  });
+
+  // 2. Fetch Booking Stats
+  const { data: stats } = useQuery<BookingStats>({
+    queryKey: ['admin-bookings-stats'],
+    queryFn: async () => {
+      const res = await apiClient.get('/admin/bookings/stats');
+      return res.data?.data ?? { total: 0, live: 0, completed: 0, cancelled: 0, totalRevenue: 0 };
+    },
+    refetchInterval: autoRefresh ? 15_000 : false,
+  });
+
+  // 3. Fetch Bookings List
+  const {
+    data: bookingsResponse,
+    isLoading,
+    isFetching,
+    refetch,
+  } = useQuery({
+    queryKey: [
+      'admin-bookings-list',
+      page,
+      pageSize,
+      search,
+      statusFilter,
+      tripTypeFilter,
+      paymentStatusFilter,
+      categoryFilter,
+    ],
+    queryFn: async () => {
+      const p = new URLSearchParams({
+        page: String(page),
+        limit: String(pageSize),
+      });
+      if (search) p.set('search', search);
+      if (statusFilter) p.set('status', statusFilter);
+      if (tripTypeFilter) p.set('tripType', tripTypeFilter);
+      if (paymentStatusFilter) p.set('paymentStatus', paymentStatusFilter);
+      if (categoryFilter) p.set('vehicleCategoryId', categoryFilter);
+
+      const res = await apiClient.get(`/admin/bookings?${p}`);
+      return res.data;
+    },
+    refetchInterval: autoRefresh ? 12_000 : false,
+  });
+
+  const bookings: BookingTicketData[] = bookingsResponse?.data ?? [];
+  const meta = bookingsResponse?.meta ?? { total: 0, totalPages: 1 };
+
+  const handleResetFilters = () => {
+    setSearch('');
+    setStatusFilter('');
+    setTripTypeFilter('');
+    setPaymentStatusFilter('');
+    setCategoryFilter('');
+    setPage(1);
+  };
 
   const formatDate = (d?: string) => {
     if (!d) return '—';
-    return new Date(d).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' });
+    const date = new Date(d);
+    return date.toLocaleDateString('en-IN', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+    }) + ' ' + date.toLocaleTimeString('en-IN', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true,
+    });
   };
 
-  const formatCurrency = (amount?: number) =>
-    amount != null ? `₹${amount.toFixed(2)}` : '—';
+  const formatCurrency = (amt?: number) => {
+    return amt != null ? `₹${amt.toFixed(2)}` : '—';
+  };
+
+  // Table Columns
+  const columns: ColumnsType<BookingTicketData> = [
+    {
+      title: 'Booking #',
+      key: 'bookingNumber',
+      width: 170,
+      render: (_, record) => (
+        <div>
+          <div className="font-mono font-bold text-indigo-600 text-sm">
+            {record.bookingNumber}
+          </div>
+          <div className="text-[11px] text-slate-400 mt-0.5">
+            {formatDate(record.createdAt)}
+          </div>
+          <div className="mt-1">
+            <span className="text-[10px] font-bold uppercase bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded">
+              {record.tripType?.replace(/_/g, ' ') || 'ONE WAY'}
+            </span>
+          </div>
+        </div>
+      ),
+    },
+    {
+      title: 'Customer',
+      key: 'customer',
+      width: 180,
+      render: (_, record) => (
+        <div>
+          <div className="font-semibold text-slate-900 flex items-center gap-1.5">
+            <UserOutlined className="text-slate-400 text-xs" />
+            <span>{record.customerId?.name || 'Guest Passenger'}</span>
+          </div>
+          <div className="text-xs text-slate-500 mt-0.5 font-medium">
+            <a
+              href={`tel:${record.customerId?.phone}`}
+              className="text-slate-600 hover:text-indigo-600"
+              onClick={e => e.stopPropagation()}
+            >
+              {record.customerId?.phone || '—'}
+            </a>
+          </div>
+          {record.customerId?.email && (
+            <div className="text-[11px] text-slate-400 truncate max-w-40">
+              {record.customerId.email}
+            </div>
+          )}
+        </div>
+      ),
+    },
+    {
+      title: 'Route',
+      key: 'route',
+      render: (_, record) => (
+        <div className="space-y-1.5 max-w-xs">
+          <div className="flex items-start gap-1.5 text-xs">
+            <span className="text-emerald-500 font-bold shrink-0 mt-0.5">🟢</span>
+            <div className="truncate text-slate-800 font-medium" title={record.pickupLocation.address}>
+              {record.originTaxiStandId?.name ? `${record.originTaxiStandId.name} Stand` : record.pickupLocation.address}
+            </div>
+          </div>
+          <div className="flex items-start gap-1.5 text-xs">
+            <span className="text-red-500 font-bold shrink-0 mt-0.5">🔴</span>
+            <div className="truncate text-slate-600" title={record.dropLocation?.address || 'As Directed'}>
+              {record.destinationTaxiStandId?.name
+                ? `${record.destinationTaxiStandId.name} Stand`
+                : (record.dropLocation?.address || 'As Directed')}
+            </div>
+          </div>
+          {record.fareSnapshot?.distanceKm ? (
+            <div className="text-[11px] text-slate-400 font-medium pl-4">
+              Est. {record.fareSnapshot.distanceKm} KM
+            </div>
+          ) : null}
+        </div>
+      ),
+    },
+    {
+      title: 'Vehicle & Driver',
+      key: 'vehicleDriver',
+      render: (_, record) => {
+        const hasDriver = Boolean(record.assignedDriverId?.name);
+        return (
+          <div>
+            <div className="flex items-center gap-2">
+              <Tag color="blue" className="text-xs font-medium">
+                {record.vehicleCategoryId?.name || 'Taxi'}
+              </Tag>
+              {record.assignedVehicleId?.registrationNumber && (
+                <span className="bg-amber-100 text-slate-900 border border-amber-300 font-mono font-bold text-[11px] px-1.5 py-0.2 rounded">
+                  {record.assignedVehicleId.registrationNumber}
+                </span>
+              )}
+            </div>
+            {hasDriver ? (
+              <div className="text-xs text-slate-700 mt-1 font-semibold flex items-center gap-1.5">
+                <CarOutlined className="text-indigo-500" />
+                <span>{record.assignedDriverId?.name}</span>
+                {record.assignedDriverId?.driverCode && (
+                  <span className="text-[10px] text-slate-400 font-mono">
+                    ({record.assignedDriverId.driverCode})
+                  </span>
+                )}
+              </div>
+            ) : (
+              <div className="text-xs text-amber-600 mt-1 font-medium italic">
+                Awaiting driver allocation
+              </div>
+            )}
+          </div>
+        );
+      },
+    },
+    {
+      title: 'Fare & Payment',
+      key: 'fare',
+      width: 150,
+      render: (_, record) => (
+        <div>
+          <div className="font-extrabold text-slate-900 text-sm">
+            {formatCurrency(record.fareSnapshot?.total)}
+          </div>
+          <div className="flex items-center gap-1.5 mt-1">
+            <Tag
+              color={PAYMENT_COLOR[record.paymentStatus] || 'default'}
+              className="text-[10px] font-bold px-1.5 py-0 rounded"
+            >
+              {record.paymentStatus}
+            </Tag>
+            <span className="text-[10px] text-slate-400 uppercase font-semibold">
+              {record.paymentOption || 'CASH'}
+            </span>
+          </div>
+        </div>
+      ),
+    },
+    {
+      title: 'Status',
+      key: 'status',
+      width: 150,
+      render: (_, record) => {
+        const conf = STATUS_CONFIG[record.status] || {
+          color: 'default',
+          label: record.status,
+        };
+        return (
+          <div className="flex items-center gap-1.5">
+            {conf.isLive && (
+              <span className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse inline-block" />
+            )}
+            <Tag color={conf.color} className="font-semibold text-xs px-2 py-0.5">
+              {conf.label}
+            </Tag>
+          </div>
+        );
+      },
+    },
+    {
+      title: 'Actions',
+      key: 'actions',
+      width: 170,
+      align: 'right',
+      render: (_, record) => (
+        <Space size="small">
+          <Tooltip title="View Detailed Booking & Route Timeline">
+            <Button
+              size="small"
+              icon={<EyeOutlined />}
+              onClick={() => setDrawerBooking(record)}
+            >
+              Details
+            </Button>
+          </Tooltip>
+
+          <Tooltip title="Print / Download Digital E-Ticket">
+            <Button
+              size="small"
+              type="primary"
+              icon={<PrinterOutlined />}
+              onClick={() => setETicketBooking(record)}
+              style={{ background: '#4f46e5', borderColor: '#4338ca' }}
+            >
+              E-Ticket
+            </Button>
+          </Tooltip>
+        </Space>
+      ),
+    },
+  ];
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
+      {/* Page Title & Live Refresh Controls */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-white">Bookings</h1>
-          <p className="text-gray-400 text-sm mt-1">{total} total bookings</p>
+          <Title level={2} style={{ margin: 0, fontWeight: 700 }}>
+            Live Booking & Dispatch
+          </Title>
+          <Text type="secondary" className="text-sm">
+            Active passenger reservations, live dispatch monitoring, and e-ticket generation
+          </Text>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-xl border border-slate-200 text-xs text-slate-600 shadow-sm">
+            <span
+              className={`w-2 h-2 rounded-full ${
+                autoRefresh ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'
+              }`}
+            />
+            <span className="font-medium">Live Polling (12s)</span>
+            <Switch
+              size="small"
+              checked={autoRefresh}
+              onChange={setAutoRefresh}
+            />
+          </div>
+
+          <Button
+            icon={<ReloadOutlined spin={isFetching} />}
+            onClick={() => {
+              refetch();
+              qc.invalidateQueries({ queryKey: ['admin-bookings-stats'] });
+            }}
+          >
+            Refresh
+          </Button>
         </div>
       </div>
 
-      {/* Filters */}
-      <div className="flex gap-4 flex-wrap">
-        <input
-          type="text"
-          placeholder="Search by booking# or customer..."
-          value={search}
-          onChange={e => { setSearch(e.target.value); setPage(1); }}
-          className="input-field flex-1 min-w-64"
+      {/* KPI Stat Cards */}
+      <Row gutter={[16, 16]}>
+        <Col xs={24} sm={12} lg={6}>
+          <Card className="shadow-sm border border-slate-200" styles={{ body: { padding: 16 } }}>
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="text-xs uppercase font-bold text-slate-400">Total Bookings</div>
+                <div className="text-2xl font-black text-slate-900 mt-1">
+                  {stats?.total ?? meta.total}
+                </div>
+              </div>
+              <div className="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center text-lg">
+                <FileTextOutlined />
+              </div>
+            </div>
+            <div className="text-xs text-slate-500 mt-3">All time passenger reservations</div>
+          </Card>
+        </Col>
+
+        <Col xs={24} sm={12} lg={6}>
+          <Card className="shadow-sm border border-slate-200" styles={{ body: { padding: 16 } }}>
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="text-xs uppercase font-bold text-slate-400">Live / In Progress</div>
+                <div className="text-2xl font-black text-indigo-600 mt-1">
+                  {stats?.live ?? 0}
+                </div>
+              </div>
+              <div className="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center text-lg">
+                <CompassOutlined />
+              </div>
+            </div>
+            <div className="text-xs text-indigo-600 font-semibold mt-3 flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-ping" />
+              Active rides currently on road
+            </div>
+          </Card>
+        </Col>
+
+        <Col xs={24} sm={12} lg={6}>
+          <Card className="shadow-sm border border-slate-200" styles={{ body: { padding: 16 } }}>
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="text-xs uppercase font-bold text-slate-400">Completed Trips</div>
+                <div className="text-2xl font-black text-emerald-600 mt-1">
+                  {stats?.completed ?? 0}
+                </div>
+              </div>
+              <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center text-lg">
+                <CheckCircleOutlined />
+              </div>
+            </div>
+            <div className="text-xs text-slate-500 mt-3">Successfully delivered passenger journeys</div>
+          </Card>
+        </Col>
+
+        <Col xs={24} sm={12} lg={6}>
+          <Card className="shadow-sm border border-slate-200" styles={{ body: { padding: 16 } }}>
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="text-xs uppercase font-bold text-slate-400">Paid Revenue</div>
+                <div className="text-2xl font-black text-slate-900 mt-1">
+                  ₹{(stats?.totalRevenue ?? 0).toLocaleString('en-IN')}
+                </div>
+              </div>
+              <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center text-lg">
+                <DollarCircleOutlined />
+              </div>
+            </div>
+            <div className="text-xs text-slate-500 mt-3">Total collected trip invoices</div>
+          </Card>
+        </Col>
+      </Row>
+
+      {/* Filters Toolbar Card */}
+      <Card
+        className="shadow-sm border border-slate-200"
+        styles={{ body: { padding: '16px 20px' } }}
+      >
+        <div className="flex flex-wrap items-center gap-3">
+          {/* Search Box */}
+          <Input
+            prefix={<SearchOutlined className="text-slate-400" />}
+            placeholder="Search booking#, customer, phone, address..."
+            value={search}
+            onChange={e => {
+              setSearch(e.target.value);
+              setPage(1);
+            }}
+            allowClear
+            style={{ width: 280 }}
+          />
+
+          {/* Status Filter */}
+          <Select
+            value={statusFilter}
+            onChange={val => {
+              setStatusFilter(val);
+              setPage(1);
+            }}
+            style={{ width: 170 }}
+            placeholder="Status"
+            options={[
+              { value: '', label: 'All Statuses' },
+              { value: 'CONFIRMED', label: 'Confirmed' },
+              { value: 'DRIVER_ASSIGNED', label: 'Driver Assigned' },
+              { value: 'EN_ROUTE', label: 'Driver En Route' },
+              { value: 'ARRIVED', label: 'Driver Arrived' },
+              { value: 'TRIP_STARTED', label: 'Trip Started' },
+              { value: 'COMPLETED', label: 'Completed' },
+              { value: 'PENDING', label: 'Pending Dispatch' },
+              { value: 'CANCELLED', label: 'Cancelled' },
+              { value: 'EXPIRED', label: 'Expired' },
+            ]}
+          />
+
+          {/* Trip Type Filter */}
+          <Select
+            value={tripTypeFilter}
+            onChange={val => {
+              setTripTypeFilter(val);
+              setPage(1);
+            }}
+            style={{ width: 150 }}
+            placeholder="Trip Type"
+            options={[
+              { value: '', label: 'All Trip Types' },
+              { value: 'ONE_WAY', label: 'One Way' },
+              { value: 'ROUND_TRIP', label: 'Round Trip' },
+              { value: 'LOCAL_RENTAL', label: 'Local Rental' },
+              { value: 'OUTSTATION', label: 'Outstation' },
+            ]}
+          />
+
+          {/* Payment Status Filter */}
+          <Select
+            value={paymentStatusFilter}
+            onChange={val => {
+              setPaymentStatusFilter(val);
+              setPage(1);
+            }}
+            style={{ width: 150 }}
+            placeholder="Payment Status"
+            options={[
+              { value: '', label: 'All Payments' },
+              { value: 'PAID', label: 'Paid' },
+              { value: 'PENDING', label: 'Pending Payment' },
+              { value: 'FAILED', label: 'Failed' },
+              { value: 'REFUNDED', label: 'Refunded' },
+            ]}
+          />
+
+          {/* Vehicle Category Filter */}
+          <Select
+            value={categoryFilter}
+            onChange={val => {
+              setCategoryFilter(val);
+              setPage(1);
+            }}
+            style={{ width: 160 }}
+            placeholder="Category"
+            options={[
+              { value: '', label: 'All Categories' },
+              ...categories.map(c => ({
+                value: c._id,
+                label: c.name,
+              })),
+            ]}
+          />
+
+          {(search || statusFilter || tripTypeFilter || paymentStatusFilter || categoryFilter) && (
+            <Button onClick={handleResetFilters} type="link" className="text-slate-500">
+              Reset Filters
+            </Button>
+          )}
+        </div>
+      </Card>
+
+      {/* Main Bookings Table Card */}
+      <Card
+        className="shadow-sm border border-slate-200 overflow-hidden"
+        styles={{ body: { padding: 0 } }}
+      >
+        <Table
+          columns={columns}
+          dataSource={bookings}
+          rowKey="_id"
+          loading={isLoading}
+          pagination={{
+            current: page,
+            pageSize: pageSize,
+            total: meta.total,
+            showSizeChanger: true,
+            pageSizeOptions: ['10', '15', '25', '50'],
+            showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} bookings`,
+            onChange: (p, ps) => {
+              setPage(p);
+              setPageSize(ps);
+            },
+          }}
+          locale={{
+            emptyText: (
+              <div className="py-14 text-center text-slate-400">
+                <FileTextOutlined className="text-4xl text-slate-300 mb-2" />
+                <p className="text-base font-semibold text-slate-700">No bookings found</p>
+                <p className="text-xs text-slate-400 max-w-sm mx-auto mt-1">
+                  Adjust your search or filter parameters to view bookings.
+                </p>
+              </div>
+            ),
+          }}
         />
-        <select
-          value={statusFilter}
-          onChange={e => { setStatusFilter(e.target.value); setPage(1); }}
-          className="input-field"
-        >
-          <option value="">All Statuses</option>
-          {Object.keys(STATUS_COLORS).map(s => (
-            <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>
-          ))}
-        </select>
-      </div>
+      </Card>
 
-      {/* Table */}
-      <div className="card overflow-hidden">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-white/5 text-gray-400 text-xs uppercase tracking-wider">
-              <th className="text-left p-4">Booking#</th>
-              <th className="text-left p-4">Customer</th>
-              <th className="text-left p-4">Route</th>
-              <th className="text-left p-4">Category</th>
-              <th className="text-left p-4">Fare</th>
-              <th className="text-left p-4">Status</th>
-              <th className="text-left p-4">Payment</th>
-              <th className="text-left p-4">Date</th>
-            </tr>
-          </thead>
-          <tbody>
-            {loading ? (
-              Array.from({ length: 5 }).map((_, i) => (
-                <tr key={i} className="border-b border-white/5">
-                  {Array.from({ length: 8 }).map((_, j) => (
-                    <td key={j} className="p-4">
-                      <div className="h-4 w-24 bg-white/5 rounded animate-pulse" />
-                    </td>
-                  ))}
-                </tr>
-              ))
-            ) : bookings.length === 0 ? (
-              <tr>
-                <td colSpan={8} className="p-12 text-center text-gray-500">
-                  No bookings found
-                </td>
-              </tr>
-            ) : (
-              bookings.map(b => (
-                <tr
-                  key={b._id}
-                  className="border-b border-white/5 hover:bg-white/3 cursor-pointer transition-colors"
-                  onClick={() => setSelected(b)}
-                >
-                  <td className="p-4 font-mono text-blue-400">{b.bookingNumber}</td>
-                  <td className="p-4">
-                    <div className="font-medium text-white">{b.customerId?.name ?? '—'}</div>
-                    <div className="text-gray-400 text-xs">{b.customerId?.phone}</div>
-                  </td>
-                  <td className="p-4 max-w-48">
-                    <div className="text-white truncate" title={b.pickupLocation.address}>
-                      📍 {b.pickupLocation.address}
+      {/* Complete Booking Details Drawer */}
+      <Drawer
+        open={Boolean(drawerBooking)}
+        onClose={() => setDrawerBooking(null)}
+        title="Booking Details"
+        subtitle={drawerBooking ? `Booking #${drawerBooking.bookingNumber}` : undefined}
+        footer={
+          drawerBooking ? (
+            <Button
+              type="primary"
+              icon={<PrinterOutlined />}
+              onClick={() => setETicketBooking(drawerBooking)}
+              style={{ background: '#4f46e5', borderColor: '#4338ca' }}
+            >
+              Print / Download E-Ticket
+            </Button>
+          ) : null
+        }
+      >
+        {drawerBooking && (
+          <div className="space-y-6 text-sm text-slate-700">
+            {/* Status & Trip Type */}
+            <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 grid grid-cols-2 gap-4">
+              <div>
+                <div className="text-xs font-bold uppercase text-slate-400">Status</div>
+                <div className="mt-1">
+                  <Tag
+                    color={STATUS_CONFIG[drawerBooking.status]?.color || 'default'}
+                    className="font-bold"
+                  >
+                    {STATUS_CONFIG[drawerBooking.status]?.label || drawerBooking.status}
+                  </Tag>
+                </div>
+              </div>
+              <div>
+                <div className="text-xs font-bold uppercase text-slate-400">Trip Type</div>
+                <div className="mt-1 font-bold text-slate-900">
+                  {drawerBooking.tripType?.replace(/_/g, ' ')}
+                </div>
+              </div>
+            </div>
+
+            {/* Customer Information */}
+            <div>
+              <div className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">
+                Passenger Information
+              </div>
+              <div className="p-4 bg-white rounded-xl border border-slate-200 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-500">Name:</span>
+                  <span className="font-bold text-slate-900">
+                    {drawerBooking.customerId?.name || 'Guest'}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-500">Phone:</span>
+                  <a
+                    href={`tel:${drawerBooking.customerId?.phone}`}
+                    className="font-bold text-indigo-600"
+                  >
+                    {drawerBooking.customerId?.phone || '—'}
+                  </a>
+                </div>
+                {drawerBooking.customerId?.email && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-500">Email:</span>
+                    <span className="text-slate-700">{drawerBooking.customerId.email}</span>
+                  </div>
+                )}
+                {drawerBooking.passengers && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-500">Passengers:</span>
+                    <span className="font-bold text-slate-900">{drawerBooking.passengers}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Route Details */}
+            <div>
+              <div className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">
+                Route & Schedule
+              </div>
+              <div className="p-4 bg-white rounded-xl border border-slate-200 space-y-3">
+                <div className="flex items-start gap-2">
+                  <span className="text-emerald-500 font-bold mt-0.5">🟢</span>
+                  <div>
+                    <div className="text-xs font-bold text-slate-400 uppercase">Pickup Location</div>
+                    <div className="font-semibold text-slate-900">
+                      {drawerBooking.pickupLocation.address}
                     </div>
-                    {b.dropLocation && (
-                      <div className="text-gray-400 text-xs truncate mt-1" title={b.dropLocation.address}>
-                        🏁 {b.dropLocation.address}
-                      </div>
-                    )}
-                  </td>
-                  <td className="p-4 text-gray-300">{b.vehicleCategoryId?.name ?? '—'}</td>
-                  <td className="p-4 text-white font-medium">{formatCurrency(b.fareSnapshot?.total)}</td>
-                  <td className="p-4">
-                    <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_COLORS[b.status] ?? 'text-gray-400'}`}>
-                      {b.status.replace(/_/g, ' ')}
-                    </span>
-                  </td>
-                  <td className="p-4">
-                    <span className={`text-xs font-medium ${PAYMENT_COLORS[b.paymentStatus] ?? 'text-gray-400'}`}>
-                      {b.paymentStatus}
-                    </span>
-                  </td>
-                  <td className="p-4 text-gray-400 text-xs whitespace-nowrap">
-                    {formatDate(b.createdAt)}
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
+                  </div>
+                </div>
 
-        {/* Pagination */}
-        {totalPages > 1 && (
-          <div className="flex items-center justify-between px-4 py-3 border-t border-white/5">
-            <span className="text-gray-400 text-sm">Page {page} of {totalPages}</span>
-            <div className="flex gap-2">
-              <button
-                disabled={page === 1}
-                onClick={() => setPage(p => p - 1)}
-                className="btn-secondary py-1 px-3 text-xs disabled:opacity-40"
-              >
-                ← Prev
-              </button>
-              <button
-                disabled={page === totalPages}
-                onClick={() => setPage(p => p + 1)}
-                className="btn-secondary py-1 px-3 text-xs disabled:opacity-40"
-              >
-                Next →
-              </button>
+                <div className="flex items-start gap-2">
+                  <span className="text-red-500 font-bold mt-0.5">🔴</span>
+                  <div>
+                    <div className="text-xs font-bold text-slate-400 uppercase">Drop Location</div>
+                    <div className="font-semibold text-slate-900">
+                      {drawerBooking.dropLocation?.address || 'As Directed By Passenger'}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
+                  <span>Scheduled Time:</span>
+                  <span className="font-bold text-slate-800">
+                    {formatDate(drawerBooking.scheduledAt || drawerBooking.createdAt)}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Vehicle & Chauffeur */}
+            <div>
+              <div className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">
+                Assigned Vehicle & Chauffeur
+              </div>
+              <div className="p-4 bg-white rounded-xl border border-slate-200 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-500">Category:</span>
+                  <Tag color="blue">{drawerBooking.vehicleCategoryId?.name || 'Standard'}</Tag>
+                </div>
+                {drawerBooking.assignedVehicleId ? (
+                  <>
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-500">Vehicle:</span>
+                      <span className="font-bold text-slate-900">
+                        {drawerBooking.assignedVehicleId.brand} {drawerBooking.assignedVehicleId.vehicleModel}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-500">Registration Plate:</span>
+                      <span className="bg-amber-100 border border-amber-300 px-2 py-0.5 rounded font-mono font-bold text-xs text-slate-900">
+                        {drawerBooking.assignedVehicleId.registrationNumber}
+                      </span>
+                    </div>
+                  </>
+                ) : (
+                  <div className="text-xs text-amber-600 font-medium">No vehicle assigned yet</div>
+                )}
+
+                {drawerBooking.assignedDriverId ? (
+                  <>
+                    <div className="flex items-center justify-between pt-2 border-t border-slate-100">
+                      <span className="text-slate-500">Chauffeur:</span>
+                      <span className="font-bold text-slate-900">
+                        {drawerBooking.assignedDriverId.name} ({drawerBooking.assignedDriverId.driverCode})
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-500">Contact:</span>
+                      <a href={`tel:${drawerBooking.assignedDriverId.phone}`} className="font-bold text-indigo-600">
+                        {drawerBooking.assignedDriverId.phone}
+                      </a>
+                    </div>
+                  </>
+                ) : null}
+              </div>
+            </div>
+
+            {/* Fare Breakdown */}
+            <div>
+              <div className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">
+                Fare Breakdown & Invoice
+              </div>
+              <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-2 text-xs">
+                {drawerBooking.fareSnapshot?.baseFare ? (
+                  <div className="flex justify-between">
+                    <span>Base Fare:</span>
+                    <span className="font-semibold">₹{drawerBooking.fareSnapshot.baseFare.toFixed(2)}</span>
+                  </div>
+                ) : null}
+                {drawerBooking.fareSnapshot?.distanceFare ? (
+                  <div className="flex justify-between">
+                    <span>Distance Fare ({drawerBooking.fareSnapshot.distanceKm} KM):</span>
+                    <span className="font-semibold">₹{drawerBooking.fareSnapshot.distanceFare.toFixed(2)}</span>
+                  </div>
+                ) : null}
+                {drawerBooking.fareSnapshot?.waitingFare ? (
+                  <div className="flex justify-between">
+                    <span>Waiting Charges:</span>
+                    <span className="font-semibold">₹{drawerBooking.fareSnapshot.waitingFare.toFixed(2)}</span>
+                  </div>
+                ) : null}
+                <div className="flex justify-between pt-2 border-t border-slate-200 font-bold text-sm text-slate-900">
+                  <span>Total Fare:</span>
+                  <span className="text-indigo-600">₹{(drawerBooking.fareSnapshot?.total || 0).toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between pt-1 text-slate-500">
+                  <span>Payment Status:</span>
+                  <span className="font-bold text-emerald-600">
+                    {drawerBooking.paymentStatus} ({drawerBooking.paymentOption})
+                  </span>
+                </div>
+              </div>
             </div>
           </div>
         )}
-      </div>
+      </Drawer>
 
-      {/* Detail Panel */}
-      {selected && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-end"
-          onClick={() => setSelected(null)}>
-          <div className="h-full w-full max-w-lg bg-surface-2 border-l border-white/10 overflow-y-auto p-6 space-y-6"
-            onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between">
-              <h2 className="text-xl font-bold text-white">Booking Details</h2>
-              <button onClick={() => setSelected(null)} className="text-gray-400 hover:text-white text-2xl">×</button>
-            </div>
-
-            <div className="space-y-4">
-              <div>
-                <div className="text-xs text-gray-400 mb-1">Booking Number</div>
-                <div className="font-mono text-blue-400 text-lg">{selected.bookingNumber}</div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <div className="text-xs text-gray-400 mb-1">Status</div>
-                  <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_COLORS[selected.status] ?? ''}`}>
-                    {selected.status.replace(/_/g, ' ')}
-                  </span>
-                </div>
-                <div>
-                  <div className="text-xs text-gray-400 mb-1">Trip Type</div>
-                  <div className="text-white text-sm">{selected.tripType.replace(/_/g, ' ')}</div>
-                </div>
-              </div>
-
-              <div className="border-t border-white/5 pt-4">
-                <div className="text-xs text-gray-400 mb-2">Customer</div>
-                <div className="text-white font-medium">{selected.customerId?.name}</div>
-                <div className="text-gray-400 text-sm">{selected.customerId?.phone}</div>
-              </div>
-
-              {selected.assignedDriverId && (
-                <div className="border-t border-white/5 pt-4">
-                  <div className="text-xs text-gray-400 mb-2">Assigned Driver</div>
-                  <div className="text-white font-medium">{selected.assignedDriverId.name}</div>
-                  <div className="text-gray-400 text-sm">{selected.assignedDriverId.phone}</div>
-                </div>
-              )}
-
-              <div className="border-t border-white/5 pt-4 space-y-2">
-                <div className="text-xs text-gray-400 mb-2">Route</div>
-                <div className="flex gap-2">
-                  <span className="text-green-400">📍</span>
-                  <div className="text-white text-sm">{selected.pickupLocation.address}</div>
-                </div>
-                {selected.dropLocation && (
-                  <div className="flex gap-2">
-                    <span className="text-red-400">🏁</span>
-                    <div className="text-white text-sm">{selected.dropLocation.address}</div>
-                  </div>
-                )}
-              </div>
-
-              <div className="border-t border-white/5 pt-4 grid grid-cols-2 gap-4">
-                <div>
-                  <div className="text-xs text-gray-400 mb-1">Vehicle Category</div>
-                  <div className="text-white text-sm">{selected.vehicleCategoryId?.name}</div>
-                </div>
-                <div>
-                  <div className="text-xs text-gray-400 mb-1">Fare</div>
-                  <div className="text-white text-sm font-bold">
-                    {formatCurrency(selected.fareSnapshot?.total)}
-                  </div>
-                </div>
-                <div>
-                  <div className="text-xs text-gray-400 mb-1">Payment</div>
-                  <div className={`text-sm font-medium ${PAYMENT_COLORS[selected.paymentStatus] ?? ''}`}>
-                    {selected.paymentStatus} ({selected.paymentOption})
-                  </div>
-                </div>
-                <div>
-                  <div className="text-xs text-gray-400 mb-1">Created</div>
-                  <div className="text-white text-sm">{formatDate(selected.createdAt)}</div>
-                </div>
-                {selected.scheduledAt && (
-                  <div>
-                    <div className="text-xs text-gray-400 mb-1">Scheduled</div>
-                    <div className="text-white text-sm">{formatDate(selected.scheduledAt)}</div>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Realistic Official E-Ticket Modal */}
+      <ETicketModal
+        open={Boolean(eTicketBooking)}
+        onClose={() => setETicketBooking(null)}
+        booking={eTicketBooking}
+      />
     </div>
   );
 }

@@ -6,6 +6,7 @@ import {
   FuelType,
   DocumentType,
   AssignmentType,
+  Status,
 } from '@gomookambika/types';
 
 // ─── COMMON SCHEMAS ──────────────────────────────────────────
@@ -61,17 +62,19 @@ export const updateProfileSchema = z.object({
 
 export const createDriverSchema = z.object({
   name: z.string().min(2, 'Name too short').max(100, 'Name too long'),
-  phone: phoneSchema,
-  email: z.string().email().optional(),
-  address: z.object({
-    line1: z.string().min(1),
-    line2: z.string().optional(),
-    city: z.string().min(1),
-    state: z.string().min(1),
-    pincode: z.string().regex(/^\d{6}$/, 'Invalid pincode'),
-    country: z.string().default('India'),
-  }),
-  licenseNumber: z.string().min(5).max(20),
+  phone: z.string().min(10, 'Phone must be at least 10 digits'),
+  email: z.string().email().optional().or(z.literal('')),
+  address: z
+    .object({
+      line1: z.string().optional().default('Kollur'),
+      line2: z.string().optional(),
+      city: z.string().optional().default('Kollur'),
+      state: z.string().optional().default('Karnataka'),
+      pincode: z.string().optional().default('576220'),
+      country: z.string().default('India'),
+    })
+    .optional(),
+  licenseNumber: z.string().min(5).max(25),
   licenseExpiry: z.string().datetime({ offset: true }),
   joiningDate: z.string().datetime({ offset: true }).optional(),
 });
@@ -80,26 +83,49 @@ export const updateDriverSchema = createDriverSchema.partial().omit({ phone: tru
 
 // ─── VEHICLE CATEGORY SCHEMAS ────────────────────────────────
 
+export const tripFareConfigSchema = z.object({
+  baseFare: z.number().min(0).default(0),
+  ratePerKm: z.number().min(0).default(0),
+  minimumKm: z.number().min(0).default(0),
+  waitingChargePerMin: z.number().min(0).default(0),
+  nightChargeMultiplier: z.number().min(1).max(3).default(1),
+  driverAllowance: z.number().min(0).optional(),
+  baseHours: z.number().min(1).optional(),
+  baseKm: z.number().min(0).optional(),
+  extraKmRate: z.number().min(0).optional(),
+  extraHourRate: z.number().min(0).optional(),
+});
+
+export const vehicleCategoryFaresSchema = z.object({
+  oneWay: tripFareConfigSchema.optional(),
+  roundTrip: tripFareConfigSchema.optional(),
+  rental: tripFareConfigSchema.optional(),
+});
+
 export const createVehicleCategorySchema = z.object({
   name: z.string().min(2).max(50),
   code: z
     .string()
     .min(2)
     .max(20)
-    .regex(/^[A-Z_]+$/, 'Code must be uppercase letters and underscores only'),
+    .regex(/^[A-Z0-9_]+$/, 'Code must be uppercase letters, numbers and underscores only'),
   description: z.string().max(500).optional(),
-  seatCapacity: z.number().int().min(1).max(20),
-  luggageCapacity: z.number().int().min(0).max(20),
+  image: z.string().optional(),
+  icon: z.string().optional(),
+  seatCapacity: z.number().int().min(1).max(60),
+  luggageCapacity: z.number().int().min(0).max(30),
   ac: z.boolean().default(true),
   fuelType: z.nativeEnum(FuelType).optional(),
-  baseFare: z.number().min(0),
-  minimumKm: z.number().min(0),
-  ratePerKm: z.number().min(0),
+  baseFare: z.number().min(0).default(0),
+  minimumKm: z.number().min(0).default(0),
+  ratePerKm: z.number().min(0).default(0),
   ratePerHour: z.number().min(0).optional(),
   extraKmRate: z.number().min(0).optional(),
   extraHourRate: z.number().min(0).optional(),
   waitingChargePerMin: z.number().min(0).default(0),
   nightChargeMultiplier: z.number().min(1).max(3).default(1),
+  fares: vehicleCategoryFaresSchema.optional(),
+  status: z.nativeEnum(Status).optional(),
   sortOrder: z.number().int().min(0).default(0),
 });
 

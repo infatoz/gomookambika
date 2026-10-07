@@ -49,6 +49,11 @@ export class FareService {
     let distanceFare = 0;
     let appliedRuleType: PriceRuleType;
     let appliedRuleName: string;
+    let waitingChargeRate = 0;
+    let nightMultiplier = 1.0;
+    let configuredDriverAllowance = 0;
+
+    const category = await VehicleCategory.findById(vehicleCategoryId);
 
     if (rule) {
       const result = this.applyRule(rule, distanceKm, input.durationMinutes);
@@ -56,26 +61,86 @@ export class FareService {
       distanceFare = result.distanceFare;
       appliedRuleType = rule.ruleType;
       appliedRuleName = rule.name;
+      if (category) {
+        waitingChargeRate = category.waitingChargePerMin ?? 0;
+        nightMultiplier = category.nightChargeMultiplier ?? 1.0;
+      }
     } else {
-      // Fallback: use vehicle category default rates
-      const category = await VehicleCategory.findById(vehicleCategoryId);
+      // Fallback: use vehicle category default rates with multi-tier trip support
       if (!category) throw errors.notFound('Vehicle Category');
 
-      baseFare = category.baseFare;
-      const effectiveKm = Math.max(distanceKm, category.minimumKm);
-      distanceFare = effectiveKm * category.ratePerKm;
-      appliedRuleType = PriceRuleType.PER_KM;
-      appliedRuleName = `${category.name} default rate`;
+      waitingChargeRate = category.waitingChargePerMin ?? 0;
+      nightMultiplier = category.nightChargeMultiplier ?? 1.0;
+
+      if (tripType === TripType.ROUND_TRIP && category.fares?.roundTrip) {
+        const rt = category.fares.roundTrip;
+        baseFare = rt.baseFare ?? 0;
+        const minKm = rt.minimumKm ?? category.minimumKm ?? 0;
+        const effectiveKm = Math.max(distanceKm, minKm);
+        const ratePerKm = rt.ratePerKm ?? category.ratePerKm ?? 0;
+        distanceFare = effectiveKm * ratePerKm;
+        waitingChargeRate = rt.waitingChargePerMin ?? waitingChargeRate;
+        nightMultiplier = rt.nightChargeMultiplier ?? nightMultiplier;
+        configuredDriverAllowance = rt.driverAllowance ?? 0;
+        appliedRuleType = PriceRuleType.PER_KM;
+        appliedRuleName = `${category.name} Round Trip rate`;
+      } else if ((tripType === TripType.LOCAL || tripType === TripType.HOURLY_RENTAL) && category.fares?.rental) {
+        const rent = category.fares.rental;
+        baseFare = rent.baseFare ?? 0;
+        const baseKm = rent.baseKm ?? 20;
+        const extraKm = Math.max(0, distanceKm - baseKm);
+        const extraKmRate = rent.extraKmRate ?? category.extraKmRate ?? category.ratePerKm ?? 0;
+        const extraKmCharge = extraKm * extraKmRate;
+
+        const baseHours = rent.baseHours ?? 2;
+        const durationHrs = input.durationMinutes ? input.durationMinutes / 60 : 0;
+        const extraHours = Math.max(0, Math.ceil(durationHrs - baseHours));
+        const extraHourRate = rent.extraHourRate ?? category.extraHourRate ?? 0;
+        const extraHoursCharge = extraHours * extraHourRate;
+
+        distanceFare = extraKmCharge + extraHoursCharge;
+        waitingChargeRate = rent.waitingChargePerMin ?? waitingChargeRate;
+        nightMultiplier = rent.nightChargeMultiplier ?? nightMultiplier;
+        appliedRuleType = PriceRuleType.FIXED;
+        appliedRuleName = `${category.name} Local Rental (${baseHours}h/${baseKm}km)`;
+      } else if (category.fares?.oneWay) {
+        const ow = category.fares.oneWay;
+        baseFare = ow.baseFare ?? 0;
+        const minKm = ow.minimumKm ?? category.minimumKm ?? 0;
+        const effectiveKm = Math.max(distanceKm, minKm);
+        const ratePerKm = ow.ratePerKm ?? category.ratePerKm ?? 0;
+        distanceFare = effectiveKm * ratePerKm;
+        waitingChargeRate = ow.waitingChargePerMin ?? waitingChargeRate;
+        nightMultiplier = ow.nightChargeMultiplier ?? nightMultiplier;
+        appliedRuleType = PriceRuleType.PER_KM;
+        appliedRuleName = `${category.name} One Way rate`;
+      } else {
+        baseFare = category.baseFare ?? 0;
+        const effectiveKm = Math.max(distanceKm, category.minimumKm ?? 0);
+        distanceFare = effectiveKm * (category.ratePerKm ?? 0);
+        appliedRuleType = PriceRuleType.PER_KM;
+        appliedRuleName = `${category.name} default rate`;
+      }
     }
 
     // Calculate additional charges
     const additionalCharges = await this.calculateAdditionalCharges(input, vehicleCategoryId);
 
-    // Night charge
+    // Apply category waiting rate if waiting minutes provided and not overridden by special rule
+    if (input.waitingMinutes && input.waitingMinutes > 0 && additionalCharges.waiting === 0 && waitingChargeRate > 0) {
+      additionalCharges.waiting = Math.round(input.waitingMinutes * waitingChargeRate * 100) / 100;
+    }
+
+    // Apply configured driver allowance for round trips if not already added by special rule
+    if (configuredDriverAllowance > 0 && additionalCharges.driverAllowance === 0) {
+      additionalCharges.driverAllowance = configuredDriverAllowance;
+    }
+
+    // Night charge based on vehicle category multiplier
     const nightCharge = this.calculateNightCharge(
       baseFare + distanceFare,
       scheduledAt,
-      vehicleCategoryId
+      nightMultiplier
     );
 
     // Subtotal before tax
@@ -294,14 +359,15 @@ export class FareService {
   private calculateNightCharge(
     subtotal: number,
     scheduledAt?: Date,
-    _vehicleCategoryId?: string
+    nightMultiplier: number = 1.0
   ): number {
     if (!scheduledAt) return 0;
     const hour = scheduledAt.getHours();
     const isNight = hour >= 22 || hour < 6;
     if (!isNight) return 0;
-    // Default 10% night surcharge — overridden by AdditionalCharge record if configured
-    return subtotal * 0.1;
+    // Surcharge percentage: e.g. multiplier 1.25 yields 25% surcharge
+    const surchargeRate = nightMultiplier > 1 ? nightMultiplier - 1.0 : 0.1;
+    return Math.round(subtotal * surchargeRate * 100) / 100;
   }
 
   private async getTaxRate(_tripType: TripType): Promise<number> {

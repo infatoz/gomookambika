@@ -1,30 +1,30 @@
 import { useState, useCallback } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  Search, Plus, Edit2, Trash2, X, Loader2, AlertCircle,
-  ChevronLeft, ChevronRight, UserCheck, UserX, Star, Filter, Users,
-} from 'lucide-react';
+  Table, Button, Tag, Space, Input, Select, Typography,
+  Tooltip, Avatar, Checkbox,
+} from 'antd';
+import {
+  PlusOutlined, EditOutlined, DeleteOutlined,
+  SearchOutlined, FilterOutlined, UserOutlined,
+  StarOutlined, PoweroffOutlined, UndoOutlined,
+} from '@ant-design/icons';
+import type { ColumnsType, TablePaginationConfig } from 'antd/es/table';
 import apiClient from '@/lib/apiClient';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { toast } from '@/components/Toast';
-import { Modal, Field, FormGrid, FormSection } from '@/components/Modal';
+import { Drawer } from '@/components/Drawer';
+import { Field, FormGrid, FormSection } from '@/components/Modal';
 
-const STATUS_BADGE: Record<string, string> = {
-  AVAILABLE: 'badge-active',
-  IN_QUEUE:  'badge-waiting',
-  ON_TRIP:   'badge-on-trip',
-  SUSPENDED: 'badge-suspended',
-  OFFLINE:   'badge-inactive',
-  INACTIVE:  'badge-inactive',
+const { Title, Text } = Typography;
+
+const STATUS_TAG: Record<string, string> = {
+  AVAILABLE: 'success', IN_QUEUE: 'processing', ON_TRIP: 'blue',
+  SUSPENDED: 'error', OFFLINE: 'default', INACTIVE: 'default',
 };
-
 const STATUS_LABELS: Record<string, string> = {
-  AVAILABLE: 'Available',
-  IN_QUEUE:  'In Queue',
-  ON_TRIP:   'On Trip',
-  SUSPENDED: 'Suspended',
-  OFFLINE:   'Offline',
-  INACTIVE:  'Inactive',
+  AVAILABLE: 'Available', IN_QUEUE: 'In Queue', ON_TRIP: 'On Trip',
+  SUSPENDED: 'Suspended', OFFLINE: 'Offline', INACTIVE: 'Inactive',
 };
 
 interface Driver {
@@ -37,42 +37,31 @@ interface Driver {
 
 const EMPTY = {
   name: '', phone: '', email: '', licenseNumber: '', licenseExpiry: '', joiningDate: '',
-  address: { line1: '', city: '', state: 'Karnataka' },
+  address: { line1: '', city: 'Kollur', state: 'Karnataka', pincode: '576220' },
 };
-
-function DriverAvatar({ name }: { name: string }) {
-  const initials = name.split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase();
-  const colors = ['#4F46E5', '#0369A1', '#7C3AED', '#059669', '#D97706', '#DC2626'];
-  const color = colors[name.charCodeAt(0) % colors.length];
-  return (
-    <div style={{
-      width: '34px', height: '34px', borderRadius: '999px', flexShrink: 0,
-      background: color + '18', border: `1.5px solid ${color}30`,
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
-      color, fontWeight: 700, fontSize: '0.6875rem', letterSpacing: '-0.01em',
-    }}>
-      {initials}
-    </div>
-  );
-}
+const LIMIT = 20;
 
 export function DriversPage() {
   const qc = useQueryClient();
-  const [page, setPage]               = useState(1);
-  const [search, setSearch]           = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
-  const [showForm, setShowForm]       = useState(false);
-  const [editTarget, setEditTarget]   = useState<Driver | null>(null);
-  const [form, setForm]               = useState(EMPTY);
-  const [saving, setSaving]           = useState(false);
-  const [formError, setFormError]     = useState('');
-  const [deleteTarget, setDeleteTarget] = useState<Driver | null>(null);
-  const [deleting, setDeleting]       = useState(false);
+  const [page, setPage]             = useState(1);
+  const [search, setSearch]         = useState('');
+  const [statusFilter, setStatusFilter] = useState('ACTIVE');
+  const [showForm, setShowForm]     = useState(false);
+  const [editTarget, setEditTarget] = useState<Driver | null>(null);
+  const [form, setForm]             = useState(EMPTY);
+  const [saving, setSaving]         = useState(false);
+  const [formError, setFormError]   = useState('');
+  const [deleteTarget, setDeleteTarget]       = useState<Driver | null>(null);
+  const [permanentDelete, setPermanentDelete] = useState(false);
+  const [deleting, setDeleting]               = useState(false);
+  const [reactivatingId, setReactivatingId]   = useState<string | null>(null);
+  const [purgeOpen, setPurgeOpen]             = useState(false);
+  const [purging, setPurging]                 = useState(false);
 
   const { data, isLoading } = useQuery({
     queryKey: ['admin-drivers', page, search, statusFilter],
     queryFn: async () => {
-      const p = new URLSearchParams({ page: String(page), limit: '20' });
+      const p = new URLSearchParams({ page: String(page), limit: String(LIMIT) });
       if (search)       p.set('search', search);
       if (statusFilter) p.set('status', statusFilter);
       const res = await apiClient.get(`/admin/drivers?${p}`);
@@ -90,7 +79,12 @@ export function DriversPage() {
     setForm({
       name: d.name, phone: d.phone, email: d.email ?? '',
       licenseNumber: d.licenseNumber ?? '', licenseExpiry: '', joiningDate: '',
-      address: { line1: d.address?.line1 ?? '', city: d.address?.city ?? '', state: d.address?.state ?? 'Karnataka' },
+      address: {
+        line1: d.address?.line1 ?? '',
+        city: d.address?.city ?? 'Kollur',
+        state: d.address?.state ?? 'Karnataka',
+        pincode: (d.address as any)?.pincode ?? '576220',
+      },
     });
     setFormError(''); setShowForm(true);
   };
@@ -104,14 +98,26 @@ export function DriversPage() {
     if (!editTarget && !form.licenseNumber.trim()) { setFormError('License number is required'); return; }
     setSaving(true); setFormError('');
     try {
+      const safeAddress = {
+        line1: form.address.line1.trim() || 'Kollur',
+        city: form.address.city.trim() || 'Kollur',
+        state: form.address.state.trim() || 'Karnataka',
+        pincode: form.address.pincode?.trim() || '576220',
+        country: 'India',
+      };
+
       if (editTarget) {
-        await apiClient.put(`/admin/drivers/${editTarget._id}`, form);
+        await apiClient.put(`/admin/drivers/${editTarget._id}`, {
+          ...form,
+          address: safeAddress,
+        });
         toast('Driver updated successfully');
       } else {
         const payload = {
           ...form,
-          licenseExpiry: form.licenseExpiry ? new Date(form.licenseExpiry).toISOString() : undefined,
-          joiningDate: form.joiningDate ? new Date(form.joiningDate).toISOString() : undefined,
+          address: safeAddress,
+          licenseExpiry: form.licenseExpiry ? new Date(form.licenseExpiry).toISOString() : new Date(Date.now() + 5 * 365 * 24 * 60 * 60 * 1000).toISOString(),
+          joiningDate: form.joiningDate ? new Date(form.joiningDate).toISOString() : new Date().toISOString(),
         };
         await apiClient.post('/admin/drivers', payload);
         toast('Driver created successfully');
@@ -120,11 +126,7 @@ export function DriversPage() {
     } catch (e: unknown) {
       const err = e as { response?: { data?: { message?: string; error?: { details?: Record<string,string> } } } };
       const details = err.response?.data?.error?.details;
-      if (details) {
-        setFormError(Object.values(details).join(', '));
-      } else {
-        setFormError(err.response?.data?.message ?? 'Failed to save. Please try again.');
-      }
+      setFormError(details ? Object.values(details).join(', ') : (err.response?.data?.message ?? 'Failed to save. Please try again.'));
     } finally { setSaving(false); }
   };
 
@@ -132,13 +134,41 @@ export function DriversPage() {
     if (!deleteTarget) return;
     setDeleting(true);
     try {
-      await apiClient.delete(`/admin/drivers/${deleteTarget._id}`);
-      toast('Driver deactivated successfully');
-      setDeleteTarget(null); refresh();
+      const isPerm = permanentDelete || deleteTarget.status === 'INACTIVE' || deleteTarget.status === 'SUSPENDED';
+      await apiClient.delete(`/admin/drivers/${deleteTarget._id}${isPerm ? '?permanent=true' : ''}`);
+      toast(isPerm ? 'Driver permanently deleted' : 'Driver deactivated successfully');
+      setDeleteTarget(null);
+      setPermanentDelete(false);
+      refresh();
     } catch (e: unknown) {
       const err = e as { response?: { data?: { message?: string } } };
-      toast(err.response?.data?.message ?? 'Failed to deactivate driver', 'error');
+      toast(err.response?.data?.message ?? (permanentDelete ? 'Failed to permanently delete driver' : 'Failed to deactivate driver'), 'error');
     } finally { setDeleting(false); }
+  };
+
+  const handleReactivate = async (d: Driver) => {
+    setReactivatingId(d._id);
+    try {
+      await apiClient.patch(`/admin/drivers/${d._id}/status`, { status: 'AVAILABLE' });
+      toast(`"${d.name}" reactivated and set to Available`);
+      refresh();
+    } catch (e: unknown) {
+      const err = e as { response?: { data?: { message?: string } } };
+      toast(err.response?.data?.message ?? 'Failed to reactivate driver', 'error');
+    } finally { setReactivatingId(null); }
+  };
+
+  const handlePurge = async () => {
+    setPurging(true);
+    try {
+      const res = await apiClient.delete('/admin/drivers/purge-inactive');
+      toast(res.data?.message ?? 'Inactive drivers purged successfully');
+      setPurgeOpen(false);
+      refresh();
+    } catch (e: unknown) {
+      const err = e as { response?: { data?: { message?: string } } };
+      toast(err.response?.data?.message ?? 'Failed to purge inactive drivers', 'error');
+    } finally { setPurging(false); }
   };
 
   const handleToggleStatus = async (d: Driver) => {
@@ -149,289 +179,331 @@ export function DriversPage() {
     } catch { toast('Status update failed', 'error'); }
   };
 
+  // Avatar colour
+  const avatarColor = (name: string) => {
+    const colors = ['#4F46E5','#0369A1','#7C3AED','#059669','#D97706','#DC2626'];
+    return colors[name.charCodeAt(0) % colors.length];
+  };
+
+  const columns: ColumnsType<Driver> = [
+    {
+      title: 'Driver',
+      render: (_: unknown, d: Driver) => (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+          <Avatar
+            style={{ background: avatarColor(d.name), fontWeight: 700, fontSize: 12, flexShrink: 0 }}
+            size={34}
+          >
+            {d.name.split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase()}
+          </Avatar>
+          <div>
+            <div style={{ fontWeight: 600, color: '#111827', fontSize: 14, lineHeight: 1.3 }}>{d.name}</div>
+            <Text type="secondary" style={{ fontSize: 12 }}>{d.email || '—'}</Text>
+          </div>
+        </div>
+      ),
+    },
+    {
+      title: 'Code',
+      dataIndex: 'driverCode',
+      render: (val: string) => (
+        <Text code style={{ fontSize: 12, fontWeight: 700, color: '#4338CA' }}>{val}</Text>
+      ),
+    },
+    {
+      title: 'Phone',
+      dataIndex: 'phone',
+      render: (val: string) => <Text style={{ fontVariantNumeric: 'tabular-nums', fontSize: 13 }}>{val}</Text>,
+    },
+    {
+      title: 'Rating',
+      render: (_: unknown, d: Driver) => (
+        <Space size={4}>
+          <StarOutlined style={{ color: '#F59E0B', fontSize: 13 }} />
+          <Text strong style={{ fontSize: 13 }}>{d.rating?.toFixed(1) ?? '—'}</Text>
+          <Text type="secondary" style={{ fontSize: 11 }}>({d.ratingCount ?? 0})</Text>
+        </Space>
+      ),
+    },
+    {
+      title: 'Trips',
+      dataIndex: 'totalTrips',
+      align: 'center',
+      render: (val: number) => <Text strong>{val ?? 0}</Text>,
+    },
+    {
+      title: 'Status',
+      dataIndex: 'status',
+      render: (val: string) => <Tag color={STATUS_TAG[val] ?? 'default'}>{STATUS_LABELS[val] ?? val}</Tag>,
+    },
+    {
+      title: 'Joined',
+      dataIndex: 'joiningDate',
+      render: (val: string) => val
+        ? <Text type="secondary" style={{ fontSize: 12 }}>{new Date(val).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: '2-digit' })}</Text>
+        : <Text type="secondary">—</Text>,
+    },
+    {
+      title: 'Actions',
+      align: 'right',
+      render: (_: unknown, d: Driver) => (
+        <Space size={4}>
+          <Tooltip title="Edit driver">
+            <Button icon={<EditOutlined />} size="small" onClick={() => openEdit(d)} />
+          </Tooltip>
+          {d.status === 'INACTIVE' || d.status === 'SUSPENDED' ? (
+            <>
+              <Tooltip title="Reactivate driver">
+                <Button
+                  icon={<UndoOutlined />}
+                  size="small"
+                  style={{ color: '#059669', borderColor: '#A7F3D0' }}
+                  loading={reactivatingId === d._id}
+                  onClick={() => handleReactivate(d)}
+                />
+              </Tooltip>
+              <Tooltip title="Permanently delete from database">
+                <Button
+                  icon={<DeleteOutlined />}
+                  size="small"
+                  danger
+                  type="primary"
+                  onClick={() => { setDeleteTarget(d); setPermanentDelete(true); }}
+                />
+              </Tooltip>
+            </>
+          ) : (
+            <>
+              <Tooltip title={d.status === 'AVAILABLE' ? 'Set Offline' : 'Set Available'}>
+                <Button
+                  icon={<PoweroffOutlined />}
+                  size="small"
+                  style={{ color: d.status === 'AVAILABLE' ? '#059669' : '#9CA3AF' }}
+                  onClick={() => handleToggleStatus(d)}
+                />
+              </Tooltip>
+              <Tooltip title="Deactivate driver">
+                <Button
+                  icon={<DeleteOutlined />}
+                  size="small"
+                  danger
+                  onClick={() => { setDeleteTarget(d); setPermanentDelete(false); }}
+                />
+              </Tooltip>
+            </>
+          )}
+        </Space>
+      ),
+    },
+  ];
+
   return (
     <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
 
-      {/* Page header */}
+      {/* Header */}
       <div className="page-header">
         <div>
-          <h1 className="page-title">Drivers</h1>
-          <p className="page-subtitle">
-            Manage association drivers · {meta.total ?? 0} total
-          </p>
+          <Title level={4} style={{ margin: 0, color: '#111827' }}>Drivers</Title>
+          <Text type="secondary">Manage association drivers · {meta.total ?? 0} total</Text>
         </div>
-        <button onClick={openCreate} className="btn-primary">
-          <Plus size={14} /> Add Driver
-        </button>
+        <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
+          Add Driver
+        </Button>
       </div>
 
       {/* Filter bar */}
-      <div className="filter-bar">
-        <div style={{ position: 'relative', flex: 1, minWidth: '200px' }}>
-          <Search size={14} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', pointerEvents: 'none' }} />
-          <input
-            value={search}
-            onChange={e => { setSearch(e.target.value); setPage(1); }}
-            placeholder="Search name, phone, driver code..."
-            className="input-field"
-            style={{ paddingLeft: '2.25rem' }}
-          />
-        </div>
-        <div style={{ position: 'relative' }}>
-          <Filter size={13} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', pointerEvents: 'none' }} />
-          <select
-            value={statusFilter}
-            onChange={e => { setStatusFilter(e.target.value); setPage(1); }}
-            className="input-field"
-            style={{ paddingLeft: '2.25rem', minWidth: '160px' }}
+      <div style={{
+        display: 'flex', gap: '0.75rem', alignItems: 'center',
+        background: '#fff', padding: '0.75rem 1rem',
+        borderRadius: 12, border: '1.5px solid #E8ECF0',
+        boxShadow: '0 1px 3px rgba(15,23,42,0.05)',
+      }}>
+        <Input
+          prefix={<SearchOutlined style={{ color: '#9CA3AF' }} />}
+          placeholder="Search name, phone, code..."
+          value={search}
+          onChange={e => { setSearch(e.target.value); setPage(1); }}
+          allowClear
+          style={{ maxWidth: 280 }}
+        />
+        <Select
+          value={statusFilter || undefined}
+          onChange={v => { setStatusFilter(v ?? ''); setPage(1); }}
+          placeholder="All Statuses"
+          allowClear
+          style={{ minWidth: 160 }}
+          suffixIcon={<FilterOutlined />}
+          options={Object.entries(STATUS_LABELS).map(([v, l]) => ({ value: v, label: l }))}
+        />
+        {(statusFilter === 'INACTIVE' || statusFilter === 'SUSPENDED') && drivers.length > 0 && (
+          <Button
+            danger
+            icon={<DeleteOutlined />}
+            onClick={() => setPurgeOpen(true)}
+            style={{ marginLeft: 'auto' }}
           >
-            <option value="">All Statuses</option>
-            {Object.entries(STATUS_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-          </select>
-        </div>
-        {(search || statusFilter) && (
-          <button onClick={() => { setSearch(''); setStatusFilter(''); setPage(1); }} className="btn-ghost" style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-            <X size={13} /> Clear
-          </button>
+            Purge All Inactive ({drivers.length})
+          </Button>
         )}
       </div>
 
-      {/* Table card */}
-      <div className="card" style={{ overflow: 'hidden', padding: 0 }}>
-        {isLoading ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
-            {Array.from({ length: 6 }).map((_, i) => (
-              <div key={i} style={{ display: 'flex', gap: '1rem', padding: '1rem', borderBottom: '1px solid var(--border)', alignItems: 'center' }}>
-                <div className="skeleton" style={{ width: '34px', height: '34px', borderRadius: '999px', flexShrink: 0 }} />
-                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '0.375rem' }}>
-                  <div className="skeleton" style={{ width: '140px', height: '13px' }} />
-                  <div className="skeleton" style={{ width: '100px', height: '11px' }} />
+      {/* Table */}
+      <div style={{ background: '#fff', borderRadius: 12, border: '1.5px solid #E8ECF0', overflow: 'hidden', boxShadow: '0 1px 3px rgba(15,23,42,0.05)' }}>
+        <Table
+          columns={columns}
+          dataSource={drivers}
+          rowKey="_id"
+          loading={isLoading}
+          onChange={(p: TablePaginationConfig) => setPage(p.current ?? 1)}
+          pagination={{
+            current: page, pageSize: LIMIT, total: meta.total ?? 0,
+            showTotal: (t, r) => `${r[0]}–${r[1]} of ${t} drivers`,
+            showSizeChanger: false,
+            style: { padding: '12px 16px', margin: 0 },
+          }}
+          size="small"
+          locale={{
+            emptyText: (
+              <div style={{ padding: '3rem 1rem', textAlign: 'center' }}>
+                <UserOutlined style={{ fontSize: 32, color: '#C7D2FE', marginBottom: 12 }} />
+                <div style={{ fontWeight: 600, color: '#374151', marginBottom: 6 }}>No drivers found</div>
+                <div style={{ color: '#9CA3AF', fontSize: 13, marginBottom: 16 }}>
+                  {search || statusFilter ? 'Try adjusting your filters' : 'Add your first driver to get started'}
                 </div>
-                <div className="skeleton" style={{ width: '60px', height: '22px', borderRadius: '999px' }} />
-                <div className="skeleton" style={{ width: '80px', height: '28px', borderRadius: '8px' }} />
-              </div>
-            ))}
-          </div>
-        ) : drivers.length === 0 ? (
-          <div className="empty-state">
-            <div className="empty-state-icon">
-              <Users size={24} style={{ color: 'var(--brand-600)' }} />
-            </div>
-            <div style={{ fontSize: '0.9375rem', fontWeight: 600, color: 'var(--text-heading)', marginBottom: '0.375rem' }}>
-              No drivers found
-            </div>
-            <div style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', marginBottom: '1.25rem' }}>
-              {search || statusFilter ? 'Try adjusting your filters' : 'Get started by adding your first driver'}
-            </div>
-            {!search && !statusFilter && (
-              <button onClick={openCreate} className="btn-primary">
-                <Plus size={14} /> Add First Driver
-              </button>
-            )}
-          </div>
-        ) : (
-          <>
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Driver</th>
-                  <th>Code</th>
-                  <th>Phone</th>
-                  <th>Rating</th>
-                  <th>Trips</th>
-                  <th>Status</th>
-                  <th>Joined</th>
-                  <th style={{ textAlign: 'right', paddingRight: '1.25rem' }}>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {drivers.map(d => (
-                  <tr key={d._id}>
-                    <td>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                        <DriverAvatar name={d.name} />
-                        <div>
-                          <div style={{ fontWeight: 600, color: 'var(--text-heading)', fontSize: '0.875rem', lineHeight: 1.3 }}>{d.name}</div>
-                          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.2 }}>{d.email || '—'}</div>
-                        </div>
-                      </div>
-                    </td>
-                    <td>
-                      <code style={{
-                        fontSize: '0.6875rem', fontWeight: 700, color: 'var(--brand-700)',
-                        background: 'var(--brand-50)', padding: '0.2rem 0.5rem',
-                        borderRadius: '5px', border: '1px solid var(--brand-100)', letterSpacing: '0.02em',
-                      }}>
-                        {d.driverCode}
-                      </code>
-                    </td>
-                    <td style={{ fontSize: '0.8125rem', color: 'var(--text-secondary)', fontVariantNumeric: 'tabular-nums' }}>
-                      {d.phone}
-                    </td>
-                    <td>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
-                        <Star size={12} style={{ color: '#F59E0B', fill: '#F59E0B' }} />
-                        <span style={{ fontSize: '0.8125rem', fontWeight: 600, color: 'var(--text-heading)' }}>
-                          {d.rating?.toFixed(1) ?? '—'}
-                        </span>
-                        <span style={{ fontSize: '0.6875rem', color: 'var(--text-muted)' }}>
-                          ({d.ratingCount ?? 0})
-                        </span>
-                      </div>
-                    </td>
-                    <td style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-secondary)' }}>
-                      {d.totalTrips ?? 0}
-                    </td>
-                    <td>
-                      <span className={`badge ${STATUS_BADGE[d.status] ?? 'badge-inactive'}`}>
-                        {STATUS_LABELS[d.status] ?? d.status}
-                      </span>
-                    </td>
-                    <td style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                      {d.joiningDate ? new Date(d.joiningDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: '2-digit' }) : '—'}
-                    </td>
-                    <td>
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '0.375rem', paddingRight: '0.25rem' }}>
-                        <button onClick={() => openEdit(d)} className="btn-icon primary" title="Edit driver">
-                          <Edit2 size={13} />
-                        </button>
-                        <button
-                          onClick={() => handleToggleStatus(d)}
-                          className="btn-icon"
-                          title={d.status === 'AVAILABLE' ? 'Set Offline' : 'Set Available'}
-                          style={{ color: d.status === 'AVAILABLE' ? '#059669' : 'var(--text-muted)' }}
-                        >
-                          {d.status === 'AVAILABLE' ? <UserX size={13} /> : <UserCheck size={13} />}
-                        </button>
-                        <button onClick={() => setDeleteTarget(d)} className="btn-icon danger" title="Deactivate driver">
-                          <Trash2 size={13} />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-
-            {/* Pagination */}
-            {(meta.totalPages ?? 0) > 1 && (
-              <div style={{
-                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                padding: '0.75rem 1rem', borderTop: '1px solid var(--border)',
-                background: 'var(--bg-surface-2)',
-              }}>
-                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                  {(meta.page - 1) * meta.limit + 1}–{Math.min(meta.page * meta.limit, meta.total)} of {meta.total} drivers
-                </span>
-                <div style={{ display: 'flex', gap: '0.375rem' }}>
-                  <button onClick={() => setPage(p => p - 1)} disabled={!meta.hasPrev} className="btn-icon">
-                    <ChevronLeft size={14} />
-                  </button>
-                  <div style={{
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    padding: '0 0.75rem', height: '32px', borderRadius: '8px',
-                    border: '1.5px solid var(--border)', fontSize: '0.75rem',
-                    fontWeight: 600, color: 'var(--text-secondary)',
-                  }}>
-                    {meta.page} / {meta.totalPages}
-                  </div>
-                  <button onClick={() => setPage(p => p + 1)} disabled={!meta.hasNext} className="btn-icon">
-                    <ChevronRight size={14} />
-                  </button>
-                </div>
-              </div>
-            )}
-          </>
-        )}
-      </div>
-
-      {/* Create / Edit Modal */}
-      {showForm && (
-        <Modal
-          title={editTarget ? 'Edit Driver' : 'Add New Driver'}
-          subtitle={editTarget ? `Editing ${editTarget.name}` : 'Fill in driver details below'}
-          onClose={() => setShowForm(false)}
-          size="md"
-          footer={
-            <>
-              <button onClick={() => setShowForm(false)} className="btn-secondary">Cancel</button>
-              <button onClick={handleSave} disabled={saving} className="btn-primary">
-                {saving ? <><Loader2 size={14} className="animate-spin" /> Saving...</> : editTarget ? 'Update Driver' : 'Add Driver'}
-              </button>
-            </>
-          }
-        >
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-            {formError && (
-              <div style={{
-                display: 'flex', alignItems: 'flex-start', gap: '0.5rem',
-                padding: '0.75rem 1rem', borderRadius: '8px',
-                background: '#FEF2F2', border: '1px solid #FECACA', color: '#991B1B', fontSize: '0.8125rem',
-              }}>
-                <AlertCircle size={14} style={{ flexShrink: 0, marginTop: '0.1rem' }} />
-                {formError}
-              </div>
-            )}
-
-            <FormSection title="Personal Information">
-              <FormGrid cols={2}>
-                <Field label="Full Name" required>
-                  <input className="input-field" placeholder="e.g. Raju Kumar" value={form.name} onChange={e => setF({ name: e.target.value })} />
-                </Field>
-                <Field label="Phone Number" required>
-                  <input className="input-field" placeholder="9876543210" value={form.phone} onChange={e => setF({ phone: e.target.value })} />
-                </Field>
-                <Field label="Email Address">
-                  <input type="email" className="input-field" placeholder="driver@example.com" value={form.email} onChange={e => setF({ email: e.target.value })} />
-                </Field>
-                {!editTarget && (
-                  <Field label="Joining Date">
-                    <input type="date" className="input-field" value={form.joiningDate} onChange={e => setF({ joiningDate: e.target.value })} />
-                  </Field>
+                {!search && !statusFilter && (
+                  <Button type="primary" icon={<PlusOutlined />} onClick={openCreate} size="small">Add First Driver</Button>
                 )}
-              </FormGrid>
-            </FormSection>
+              </div>
+            ),
+          }}
+        />
+      </div>
 
-            {!editTarget && (
-              <FormSection title="License Details">
-                <FormGrid cols={2}>
-                  <Field label="License Number" required>
-                    <input className="input-field" placeholder="KA12 20230001234" value={form.licenseNumber} onChange={e => setF({ licenseNumber: e.target.value.toUpperCase() })} style={{ fontFamily: 'monospace' }} />
-                  </Field>
-                  <Field label="License Expiry" required>
-                    <input type="date" className="input-field" value={form.licenseExpiry} onChange={e => setF({ licenseExpiry: e.target.value })} />
-                  </Field>
-                </FormGrid>
-              </FormSection>
-            )}
-
-            <FormSection title="Address">
-              <FormGrid cols={1}>
-                <Field label="Street Address">
-                  <input className="input-field" placeholder="House No., Street, Area" value={form.address.line1} onChange={e => setAddr({ line1: e.target.value })} />
+      {/* Drawer */}
+      <Drawer
+        open={showForm} onClose={() => setShowForm(false)}
+        title={editTarget ? 'Edit Driver' : 'Add New Driver'}
+        subtitle={editTarget ? `Editing ${editTarget.name}` : 'Fill in driver details below'}
+        width={500}
+        footer={
+          <>
+            <Button onClick={() => setShowForm(false)}>Cancel</Button>
+            <Button type="primary" loading={saving} onClick={handleSave}>
+              {editTarget ? 'Update Driver' : 'Add Driver'}
+            </Button>
+          </>
+        }
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+          {formError && (
+            <div style={{ padding: '0.75rem 1rem', borderRadius: 8, background: '#FEF2F2', border: '1px solid #FECACA', color: '#991B1B', fontSize: 13 }}>
+              {formError}
+            </div>
+          )}
+          <FormSection title="Personal Information">
+            <FormGrid cols={2}>
+              <Field label="Full Name" required>
+                <input className="input-field" placeholder="e.g. Raju Kumar" value={form.name} onChange={e => setF({ name: e.target.value })} />
+              </Field>
+              <Field label="Phone Number" required>
+                <input className="input-field" placeholder="9876543210" value={form.phone} onChange={e => setF({ phone: e.target.value })} />
+              </Field>
+              <Field label="Email Address">
+                <input type="email" className="input-field" placeholder="driver@example.com" value={form.email} onChange={e => setF({ email: e.target.value })} />
+              </Field>
+              {!editTarget && (
+                <Field label="Joining Date">
+                  <input type="date" className="input-field" value={form.joiningDate} onChange={e => setF({ joiningDate: e.target.value })} />
                 </Field>
-              </FormGrid>
+              )}
+            </FormGrid>
+          </FormSection>
+
+          {!editTarget && (
+            <FormSection title="License Details">
               <FormGrid cols={2}>
-                <Field label="City">
-                  <input className="input-field" placeholder="Udupi" value={form.address.city} onChange={e => setAddr({ city: e.target.value })} />
+                <Field label="License Number" required>
+                  <input className="input-field" placeholder="KA12 20230001234" value={form.licenseNumber}
+                    onChange={e => setF({ licenseNumber: e.target.value.toUpperCase() })} style={{ fontFamily: 'monospace' }} />
                 </Field>
-                <Field label="State">
-                  <input className="input-field" value={form.address.state} onChange={e => setAddr({ state: e.target.value })} />
+                <Field label="License Expiry" required>
+                  <input type="date" className="input-field" value={form.licenseExpiry} onChange={e => setF({ licenseExpiry: e.target.value })} />
                 </Field>
               </FormGrid>
             </FormSection>
-          </div>
-        </Modal>
-      )}
+          )}
+
+          <FormSection title="Address">
+            <FormGrid cols={1}>
+              <Field label="Street Address">
+                <input className="input-field" placeholder="House No., Street, Area" value={form.address.line1} onChange={e => setAddr({ line1: e.target.value })} />
+              </Field>
+            </FormGrid>
+            <FormGrid cols={2}>
+              <Field label="City">
+                <input className="input-field" placeholder="Kollur / Udupi" value={form.address.city} onChange={e => setAddr({ city: e.target.value })} />
+              </Field>
+              <Field label="State">
+                <input className="input-field" value={form.address.state} onChange={e => setAddr({ state: e.target.value })} />
+              </Field>
+            </FormGrid>
+            <FormGrid cols={2}>
+              <Field label="Pincode">
+                <input className="input-field" placeholder="576220" value={form.address.pincode} onChange={e => setAddr({ pincode: e.target.value })} />
+              </Field>
+            </FormGrid>
+          </FormSection>
+        </div>
+      </Drawer>
 
       <ConfirmDialog
-        open={!!deleteTarget} danger
-        title="Deactivate Driver"
-        message={`Are you sure you want to deactivate "${deleteTarget?.name}"? They will no longer be able to join queues or accept trips.`}
-        confirmLabel="Deactivate"
+        open={!!deleteTarget}
+        danger
+        title={
+          permanentDelete || deleteTarget?.status === 'INACTIVE' || deleteTarget?.status === 'SUSPENDED'
+            ? 'Permanently Delete Driver'
+            : 'Deactivate Driver'
+        }
+        message={
+          permanentDelete || deleteTarget?.status === 'INACTIVE' || deleteTarget?.status === 'SUSPENDED'
+            ? `Are you sure you want to permanently delete driver "${deleteTarget?.name}" (${deleteTarget?.driverCode})? This will permanently remove their driver record and login account from the database.`
+            : `Are you sure you want to deactivate "${deleteTarget?.name}"? They will no longer be able to join queues or accept trips.`
+        }
+        confirmLabel={
+          permanentDelete || deleteTarget?.status === 'INACTIVE' || deleteTarget?.status === 'SUSPENDED'
+            ? 'Delete Permanently'
+            : 'Deactivate'
+        }
         loading={deleting}
         onConfirm={handleDelete}
-        onCancel={() => setDeleteTarget(null)}
+        onCancel={() => { setDeleteTarget(null); setPermanentDelete(false); }}
+      >
+        {deleteTarget?.status !== 'INACTIVE' && deleteTarget?.status !== 'SUSPENDED' && (
+          <div style={{
+            padding: '0.625rem 0.75rem', borderRadius: 8,
+            background: '#FEF2F2', border: '1px solid #FECACA',
+          }}>
+            <Checkbox
+              checked={permanentDelete}
+              onChange={e => setPermanentDelete(e.target.checked)}
+            >
+              <span style={{ fontSize: 13, fontWeight: 600, color: '#991B1B' }}>
+                Permanently delete from database instead (irreversible)
+              </span>
+            </Checkbox>
+          </div>
+        )}
+      </ConfirmDialog>
+
+      <ConfirmDialog
+        open={purgeOpen}
+        danger
+        title="Purge All Inactive Drivers"
+        message="Permanently delete all inactive and suspended drivers from the database? Drivers with active trips or queue entries will be safely preserved."
+        confirmLabel="Purge Inactive"
+        loading={purging}
+        onConfirm={handlePurge}
+        onCancel={() => setPurgeOpen(false)}
       />
     </div>
   );

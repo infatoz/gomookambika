@@ -1,6 +1,7 @@
 import 'express-async-errors';
 import express from 'express';
 import http from 'http';
+import path from 'path';
 import cors from 'cors';
 import helmet from 'helmet';
 import compression from 'compression';
@@ -28,10 +29,11 @@ app.use(
       directives: {
         defaultSrc: ["'self'"],
         styleSrc: ["'self'", "'unsafe-inline'"],
-        imgSrc: ["'self'", 'data:', 'https:'],
+        imgSrc: ["'self'", 'data:', 'https:', 'blob:', 'http:'],
         connectSrc: ["'self'"],
       },
     },
+    crossOriginResourcePolicy: { policy: 'cross-origin' },
   })
 );
 
@@ -43,6 +45,9 @@ app.use(
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
   })
 );
+
+// ─── STATIC ASSETS & UPLOADS ─────────────────────────────────
+app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
 
 // ─── BODY PARSING ────────────────────────────────────────────
 app.use(express.json({ limit: '10mb' }));

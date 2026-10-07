@@ -433,14 +433,69 @@ select.input-field {
    ════════════════════════════════════════════════════════════════ */
 .filter-bar {
   background: var(--bg-surface);
-  border: 1px solid var(--border);
+  border: 1.5px solid var(--border);
   border-radius: var(--r-xl);
-  padding: 0.875rem 1rem;
+  padding: 0.5rem 0.75rem;
   box-shadow: var(--shadow-xs);
   display: flex;
-  gap: 0.75rem;
-  flex-wrap: wrap;
+  gap: 0;
   align-items: center;
+  flex-wrap: nowrap;
+  overflow: hidden;
+  min-height: 44px;
+}
+
+/* Each direct child in the filter-bar gets a right border divider */
+.filter-bar > * + * {
+  border-left: 1.5px solid var(--border);
+  padding-left: 0.625rem;
+  margin-left: 0.125rem;
+}
+
+/* Override input-field and select styles inside filter-bar for borderless look */
+.filter-bar .input-field {
+  border: none !important;
+  box-shadow: none !important;
+  border-radius: 0;
+  background: transparent;
+  height: 34px;
+  padding-top: 0;
+  padding-bottom: 0;
+  min-width: 0;
+  width: 100%;
+}
+.filter-bar .input-field:focus {
+  outline: none;
+  box-shadow: none !important;
+  background: var(--bg-surface-2);
+  border-radius: var(--r-md);
+}
+
+/* Search segment stretches */
+.filter-bar > div:first-child {
+  flex: 1;
+  min-width: 160px;
+}
+
+/* Selects stay fixed-width */
+.filter-bar select.input-field {
+  min-width: 130px;
+  max-width: 180px;
+  padding-right: 1.75rem;
+}
+
+/* Clear button inside the bar */
+.filter-bar .btn-ghost {
+  border: none;
+  background: transparent;
+  border-radius: var(--r-md);
+  padding: 0.25rem 0.625rem;
+  height: 30px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.filter-bar .btn-ghost:hover {
+  background: var(--bg-surface-3);
 }
 
 /* ════════════════════════════════════════════════════════════════
@@ -688,8 +743,284 @@ select.input-field {
 /* ════════════════════════════════════════════════════════════════
    LEAFLET OVERRIDES
    ════════════════════════════════════════════════════════════════ */
+/* ════════════════════════════════════════════════════════════════
+   LEAFLET OVERRIDES
+   ════════════════════════════════════════════════════════════════ */
 .leaflet-container {
   background: #E8EEF4 !important;
   border-radius: var(--r-lg);
   font-family: inherit !important;
 }
+
+/* ════════════════════════════════════════════════════════════════
+   ANT DESIGN INTEGRATION
+   Ensures antd components match the existing design system
+   ════════════════════════════════════════════════════════════════ */
+
+/* Force Inter font across all antd elements */
+.ant-btn,
+.ant-table,
+.ant-select,
+.ant-input,
+.ant-input-affix-wrapper,
+.ant-tag,
+.ant-modal,
+.ant-drawer,
+.ant-message,
+.ant-tooltip,
+.ant-pagination,
+.ant-typography {
+  font-family: 'Inter', system-ui, -apple-system, sans-serif !important;
+}
+
+/* Table header polish */
+.ant-table-thead > tr > th {
+  background: #F8FAFC !important;
+  color: #374151 !important;
+  font-weight: 600 !important;
+  font-size: 12px !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.04em !important;
+  border-bottom: 1.5px solid #E8ECF0 !important;
+}
+
+.ant-table-thead > tr > th:before {
+  display: none !important;
+}
+
+/* Table row hover */
+.ant-table-tbody > tr:hover > td {
+  background: #F8FAFF !important;
+}
+
+/* Table row border */
+.ant-table-tbody > tr > td {
+  border-bottom: 1px solid #F1F5F9 !important;
+}
+
+/* Table body font */
+.ant-table-tbody > tr > td {
+  color: #1F2937 !important;
+}
+
+/* Pagination */
+.ant-pagination-item-active {
+  background: var(--brand-600) !important;
+  border-color: var(--brand-600) !important;
+}
+.ant-pagination-item-active a {
+  color: #fff !important;
+}
+
+/* Primary button */
+.ant-btn-primary {
+  background: var(--brand-600) !important;
+  border-color: var(--brand-600) !important;
+  font-weight: 500 !important;
+  box-shadow: 0 4px 14px rgba(79,70,229,0.22) !important;
+}
+.ant-btn-primary:hover:not(:disabled) {
+  background: var(--brand-700) !important;
+  border-color: var(--brand-700) !important;
+}
+
+/* Danger button */
+.ant-btn-dangerous {
+  font-weight: 500 !important;
+}
+
+/* Default button */
+.ant-btn-default {
+  border-color: var(--border) !important;
+  color: var(--text-secondary) !important;
+  font-weight: 500 !important;
+}
+.ant-btn-default:hover:not(:disabled) {
+  border-color: var(--brand-600) !important;
+  color: var(--brand-600) !important;
+}
+
+/* Input fields */
+.ant-input,
+.ant-input-affix-wrapper,
+.ant-select:not(.ant-select-customize-input) .ant-select-selector {
+  border-radius: 8px !important;
+  border-color: var(--border) !important;
+  font-size: 13px !important;
+}
+
+.ant-input:focus,
+.ant-input-affix-wrapper:focus,
+.ant-input-affix-wrapper-focused {
+  border-color: var(--brand-600) !important;
+  box-shadow: 0 0 0 3px rgba(79,70,229,0.12) !important;
+}
+
+.ant-select-focused .ant-select-selector {
+  border-color: var(--brand-600) !important;
+  box-shadow: 0 0 0 3px rgba(79,70,229,0.12) !important;
+}
+
+/* Select dropdown */
+.ant-select-dropdown {
+  border: 1.5px solid var(--border) !important;
+  border-radius: 10px !important;
+  box-shadow: 0 8px 24px rgba(15,23,42,0.12) !important;
+}
+.ant-select-item-option-selected {
+  background: #EEF2FF !important;
+  color: var(--brand-700) !important;
+  font-weight: 600 !important;
+}
+.ant-select-item-option-active {
+  background: #F5F3FF !important;
+}
+
+/* Drawer */
+.ant-drawer-header {
+  border-bottom: 1.5px solid var(--border) !important;
+  padding: 1rem 1.5rem !important;
+}
+.ant-drawer-body {
+  padding: 1.5rem !important;
+}
+.ant-drawer-footer {
+  border-top: 1.5px solid var(--border) !important;
+  background: #F8FAFC !important;
+  padding: 0.875rem 1.5rem !important;
+}
+.ant-drawer-title {
+  font-size: 15px !important;
+  font-weight: 700 !important;
+  color: #111827 !important;
+}
+
+/* Modal */
+.ant-modal-content {
+  border-radius: 14px !important;
+  box-shadow: 0 24px 64px rgba(15,23,42,0.18) !important;
+  overflow: hidden;
+}
+.ant-modal-header {
+  border-bottom: 1px solid var(--border) !important;
+  padding: 1rem 1.5rem !important;
+}
+.ant-modal-body {
+  padding: 0 !important;
+}
+.ant-modal-title {
+  font-weight: 700 !important;
+  font-size: 15px !important;
+  color: #111827 !important;
+}
+
+/* Tags */
+.ant-tag {
+  border-radius: 6px !important;
+  font-weight: 500 !important;
+  font-size: 12px !important;
+  padding: 1px 8px !important;
+}
+
+/* Message */
+.ant-message-notice-content {
+  border-radius: 10px !important;
+  border: 1px solid var(--border) !important;
+  box-shadow: 0 4px 16px rgba(15,23,42,0.08) !important;
+  font-size: 13px !important;
+  font-weight: 500 !important;
+}
+
+/* Input number */
+.ant-input-number {
+  border-radius: 8px !important;
+  border-color: var(--border) !important;
+}
+.ant-input-number:focus,
+.ant-input-number-focused {
+  border-color: var(--brand-600) !important;
+  box-shadow: 0 0 0 3px rgba(79,70,229,0.12) !important;
+}
+
+/* Switch */
+.ant-switch-checked {
+  background: var(--brand-600) !important;
+}
+
+/* Avatar */
+.ant-avatar {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+
+/* Tooltip */
+.ant-tooltip-inner {
+  font-size: 12px !important;
+  font-weight: 500 !important;
+  border-radius: 6px !important;
+  padding: 4px 10px !important;
+}
+
+/* Page header layout — ensure Ant Design Button doesn't affect existing page-header */
+.page-header .ant-btn {
+  height: 36px !important;
+}
+
+/* Empty state in table */
+.ant-table-empty .ant-table-tbody > tr > td {
+  border-bottom: none !important;
+}
+
+/* Code element */
+.ant-typography code {
+  background: #EEF2FF !important;
+  border: 1px solid #C7D2FE !important;
+  color: #4338CA !important;
+  border-radius: 5px !important;
+  font-weight: 700 !important;
+  padding: 1px 6px !important;
+}
+
+/* ════════════════════════════════════════════════════════════════
+   SIDEBAR RESPONSIVE — Media-query based (replaces Tailwind md:)
+   ════════════════════════════════════════════════════════════════ */
+
+/* Desktop sidebar: visible on md+ screens, hidden on mobile */
+.admin-sidebar-desktop {
+  display: flex;
+  flex-direction: column;
+}
+@media (max-width: 767px) {
+  .admin-sidebar-desktop {
+    display: none !important;
+  }
+}
+
+/* Mobile sidebar tab: hidden on desktop, fixed on left edge on mobile */
+.admin-mobile-tab {
+  display: none;
+}
+@media (max-width: 767px) {
+  .admin-mobile-tab {
+    display: flex !important;
+  }
+}
+
+/* Mobile drawer — kill antd's default header spacing */
+.admin-mobile-drawer .ant-drawer-header {
+  display: none !important;
+}
+.admin-mobile-drawer .ant-drawer-body {
+  padding: 0 !important;
+  background: var(--sidebar-bg) !important;
+  overflow: hidden !important;
+}
+.admin-mobile-drawer .ant-drawer-content {
+  background: var(--sidebar-bg) !important;
+}
+.admin-mobile-drawer .ant-drawer-wrapper-body {
+  background: var(--sidebar-bg) !important;
+}
+
+

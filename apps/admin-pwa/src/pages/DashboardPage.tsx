@@ -262,22 +262,21 @@ export function DashboardPage() {
           </div>
 
           <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '1rem' }}>
-            <ResponsiveContainer width={180} height={180}>
-              <PieChart>
-                <Pie
-                  data={statusDistribution}
-                  cx="50%" cy="50%"
-                  innerRadius={56} outerRadius={82}
-                  paddingAngle={3} dataKey="value"
-                  strokeWidth={0}
-                >
-                  {statusDistribution.map((entry, i) => (
-                    <Cell key={i} fill={entry.color} />
-                  ))}
-                </Pie>
-              </PieChart>
-            </ResponsiveContainer>
+            <PieChart width={180} height={180}>
+              <Pie
+                data={statusDistribution}
+                cx={90} cy={90}
+                innerRadius={56} outerRadius={82}
+                paddingAngle={3} dataKey="value"
+                strokeWidth={0}
+              >
+                {statusDistribution.map((entry, i) => (
+                  <Cell key={i} fill={entry.color} />
+                ))}
+              </Pie>
+            </PieChart>
           </div>
+
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.625rem' }}>
             {statusDistribution.map(item => (

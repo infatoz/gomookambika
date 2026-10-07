@@ -23,7 +23,7 @@ import {
 
 function getPaginationOptions(query: Record<string, unknown>) {
   const page = Math.max(1, parseInt(query.page as string) || 1);
-  const limit = Math.min(100, Math.max(1, parseInt(query.limit as string) || 20));
+  const limit = Math.min(1000, Math.max(1, parseInt(query.limit as string) || 20));
   const skip = (page - 1) * limit;
   return { page, limit, skip };
 }
@@ -208,14 +208,30 @@ export class AdminController {
   }
 
   async createVehicleCategory(req: Request, res: Response): Promise<void> {
-    const category = await VehicleCategory.create(req.body);
+    const data = { ...req.body };
+    if (data.fares?.oneWay) {
+      if (data.fares.oneWay.baseFare !== undefined) data.baseFare = data.fares.oneWay.baseFare;
+      if (data.fares.oneWay.ratePerKm !== undefined) data.ratePerKm = data.fares.oneWay.ratePerKm;
+      if (data.fares.oneWay.minimumKm !== undefined) data.minimumKm = data.fares.oneWay.minimumKm;
+      if (data.fares.oneWay.waitingChargePerMin !== undefined) data.waitingChargePerMin = data.fares.oneWay.waitingChargePerMin;
+      if (data.fares.oneWay.nightChargeMultiplier !== undefined) data.nightChargeMultiplier = data.fares.oneWay.nightChargeMultiplier;
+    }
+    const category = await VehicleCategory.create(data);
     await this.logAudit(req, 'CREATE', 'vehicle_categories', category.id, category);
     res.status(201).json({ success: true, message: 'Vehicle category created', data: category });
   }
 
   async updateVehicleCategory(req: Request, res: Response): Promise<void> {
+    const data = { ...req.body };
+    if (data.fares?.oneWay) {
+      if (data.fares.oneWay.baseFare !== undefined) data.baseFare = data.fares.oneWay.baseFare;
+      if (data.fares.oneWay.ratePerKm !== undefined) data.ratePerKm = data.fares.oneWay.ratePerKm;
+      if (data.fares.oneWay.minimumKm !== undefined) data.minimumKm = data.fares.oneWay.minimumKm;
+      if (data.fares.oneWay.waitingChargePerMin !== undefined) data.waitingChargePerMin = data.fares.oneWay.waitingChargePerMin;
+      if (data.fares.oneWay.nightChargeMultiplier !== undefined) data.nightChargeMultiplier = data.fares.oneWay.nightChargeMultiplier;
+    }
     const old = await VehicleCategory.findById(req.params.id).lean();
-    const category = await VehicleCategory.findByIdAndUpdate(req.params.id, req.body, { new: true });
+    const category = await VehicleCategory.findByIdAndUpdate(req.params.id, data, { new: true });
     if (!category) throw errors.notFound('Vehicle Category');
     await this.logAudit(req, 'UPDATE', 'vehicle_categories', req.params.id, { old, new: category });
     res.json({ success: true, message: 'Category updated', data: category });
@@ -250,6 +266,14 @@ export class AdminController {
   async createLocation(req: Request, res: Response): Promise<void> {
     const { latitude, longitude, ...rest } = req.body as { latitude?: number; longitude?: number; [key: string]: unknown };
     const locationData: Record<string, unknown> = { ...rest };
+    if (locationData.code) {
+      const codeUpper = String(locationData.code).trim().toUpperCase();
+      locationData.code = codeUpper;
+      const existing = await Location.findOne({ code: codeUpper });
+      if (existing) {
+        throw errors.conflict(`A location with code "${codeUpper}" already exists. Please choose a different code.`);
+      }
+    }
     if (latitude !== undefined && longitude !== undefined && !isNaN(Number(latitude)) && !isNaN(Number(longitude))) {
       locationData.geoPoint = { type: 'Point', coordinates: [Number(longitude), Number(latitude)] };
     }
@@ -261,6 +285,14 @@ export class AdminController {
   async updateLocation(req: Request, res: Response): Promise<void> {
     const { latitude, longitude, ...rest } = req.body as { latitude?: number; longitude?: number; [key: string]: unknown };
     const update: Record<string, unknown> = { ...rest };
+    if (update.code) {
+      const codeUpper = String(update.code).trim().toUpperCase();
+      update.code = codeUpper;
+      const existing = await Location.findOne({ code: codeUpper, _id: { $ne: req.params.id } });
+      if (existing) {
+        throw errors.conflict(`A location with code "${codeUpper}" already exists. Please choose a different code.`);
+      }
+    }
     if (latitude !== undefined && longitude !== undefined) {
       update.geoPoint = { type: 'Point', coordinates: [longitude, latitude] };
     }

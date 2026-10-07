@@ -1,6 +1,7 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuthStore } from '@/store/authStore';
 import { AdminLayout } from '@/layouts/AdminLayout';
+import { AntdAppContext } from '@/components/AntdAppContext';
 import { LoginPage } from '@/pages/LoginPage';
 import { DashboardPage } from '@/pages/DashboardPage';
 import { DriversPage } from '@/pages/DriversPage';
@@ -24,22 +25,24 @@ function PublicRoute({ children }: { children: React.ReactNode }) {
 
 export default function App() {
   return (
-    <Routes>
-      <Route path="/login" element={<PublicRoute><LoginPage /></PublicRoute>} />
+    <AntdAppContext>
+      <Routes>
+        <Route path="/login" element={<PublicRoute><LoginPage /></PublicRoute>} />
 
-      <Route path="/" element={<ProtectedRoute><AdminLayout /></ProtectedRoute>}>
-        <Route index element={<DashboardPage />} />
-        <Route path="drivers/*" element={<DriversPage />} />
-        <Route path="vehicles" element={<VehiclesPage />} />
-        <Route path="vehicles/categories" element={<VehicleCategoriesPage />} />
-        <Route path="locations/*" element={<LocationsPage />} />
-        <Route path="taxi-stands/*" element={<TaxiStandsPage />} />
-        <Route path="bookings/*" element={<BookingsPage />} />
-        <Route path="queue/*" element={<QueuePage />} />
-        <Route path="settings/*" element={<SettingsPage />} />
-      </Route>
+        <Route path="/" element={<ProtectedRoute><AdminLayout /></ProtectedRoute>}>
+          <Route index element={<DashboardPage />} />
+          <Route path="drivers/*" element={<DriversPage />} />
+          <Route path="vehicles" element={<VehiclesPage />} />
+          <Route path="vehicles/categories" element={<VehicleCategoriesPage />} />
+          <Route path="locations/*" element={<LocationsPage />} />
+          <Route path="taxi-stands/*" element={<TaxiStandsPage />} />
+          <Route path="bookings/*" element={<BookingsPage />} />
+          <Route path="queue/*" element={<QueuePage />} />
+          <Route path="settings/*" element={<SettingsPage />} />
+        </Route>
 
-      <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </AntdAppContext>
   );
 }

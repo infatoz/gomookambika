@@ -10,21 +10,21 @@ interface SearchInputProps {
 }
 export function SearchInput({ value, onChange, placeholder = 'Search...' }: SearchInputProps) {
   return (
-    <div style={{ position: 'relative', flex: 1, minWidth: '200px' }}>
+    <div style={{ position: 'relative' }}>
       <Search size={14} style={{
-        position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)',
-        color: 'var(--text-muted)', pointerEvents: 'none',
+        position: 'absolute', left: '0.625rem', top: '50%', transform: 'translateY(-50%)',
+        color: 'var(--text-muted)', pointerEvents: 'none', zIndex: 1,
       }} />
       <input
         value={value}
         onChange={e => onChange(e.target.value)}
         placeholder={placeholder}
         className="input-field"
-        style={{ paddingLeft: '2.25rem', paddingRight: value ? '2rem' : undefined }}
+        style={{ paddingLeft: '2rem', paddingRight: value ? '2rem' : undefined }}
       />
       {value && (
         <button onClick={() => onChange('')} style={{
-          position: 'absolute', right: '0.5rem', top: '50%', transform: 'translateY(-50%)',
+          position: 'absolute', right: '0.375rem', top: '50%', transform: 'translateY(-50%)',
           background: 'transparent', border: 'none', cursor: 'pointer',
           color: 'var(--text-muted)', display: 'flex', padding: '0.25rem',
         }}>
@@ -50,7 +50,6 @@ export function FilterSelect({ value, onChange, options, placeholder = 'All' }: 
       value={value}
       onChange={e => onChange(e.target.value)}
       className="input-field"
-      style={{ minWidth: '140px' }}
     >
       <option value="">{placeholder}</option>
       {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
