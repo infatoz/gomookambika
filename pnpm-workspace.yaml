@@ -1,0 +1,18 @@
+packages:
+  - 'apps/*'
+  - 'packages/*'
+  - 'server'
+
+allowBuilds:
+  '@scarf/scarf': true
+  argon2: true
+  bcrypt: true
+  esbuild: true
+  msgpackr-extract: true
+
+onlyBuiltDependencies:
+  - '@scarf/scarf'
+  - argon2
+  - bcrypt
+  - esbuild
+  - msgpackr-extract

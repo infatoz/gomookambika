@@ -1,0 +1,10 @@
+{
+  "allowedDeprecatedVersions": {},
+  "allowedBuildDependencies": [
+    "@scarf/scarf",
+    "argon2",
+    "bcrypt",
+    "esbuild",
+    "msgpackr-extract"
+  ]
+}

@@ -1,0 +1,104 @@
+services:
+  mongodb:
+    image: mongo:7.0
+    container_name: gm-mongodb
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:-gomookambika_dev}
+      MONGO_INITDB_DATABASE: gomookambika
+    ports:
+      - '27017:27017'
+    volumes:
+      - mongodb_data:/data/db
+      - ./docker/mongodb/init.js:/docker-entrypoint-initdb.d/init.js:ro
+    networks:
+      - gm-network
+
+  redis:
+    image: redis:7.2-alpine
+    container_name: gm-redis
+    restart: unless-stopped
+    command: redis-server --requirepass ${REDIS_PASSWORD:-gomookambika_dev}
+    ports:
+      - '6379:6379'
+    volumes:
+      - redis_data:/data
+    networks:
+      - gm-network
+
+  server:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+      target: development
+    container_name: gm-server
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=development
+      - MONGODB_URI=mongodb://admin:${MONGO_ROOT_PASSWORD:-gomookambika_dev}@mongodb:27017/gomookambika?authSource=admin
+      - REDIS_URL=redis://:${REDIS_PASSWORD:-gomookambika_dev}@redis:6379
+    env_file:
+      - .env
+    ports:
+      - '5000:5000'
+    volumes:
+      - ./server/src:/app/src
+      - ./server/uploads:/app/uploads
+    depends_on:
+      - mongodb
+      - redis
+    networks:
+      - gm-network
+
+  customer-pwa:
+    build:
+      context: ./apps/customer-pwa
+      dockerfile: Dockerfile
+      target: development
+    container_name: gm-customer
+    restart: unless-stopped
+    ports:
+      - '3000:3000'
+    volumes:
+      - ./apps/customer-pwa/src:/app/src
+    networks:
+      - gm-network
+
+  driver-pwa:
+    build:
+      context: ./apps/driver-pwa
+      dockerfile: Dockerfile
+      target: development
+    container_name: gm-driver
+    restart: unless-stopped
+    ports:
+      - '3001:3001'
+    volumes:
+      - ./apps/driver-pwa/src:/app/src
+    networks:
+      - gm-network
+
+  admin-pwa:
+    build:
+      context: ./apps/admin-pwa
+      dockerfile: Dockerfile
+      target: development
+    container_name: gm-admin
+    restart: unless-stopped
+    ports:
+      - '3002:3002'
+    volumes:
+      - ./apps/admin-pwa/src:/app/src
+    networks:
+      - gm-network
+
+volumes:
+  mongodb_data:
+    driver: local
+  redis_data:
+    driver: local
+
+networks:
+  gm-network:
+    driver: bridge
