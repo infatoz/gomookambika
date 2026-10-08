@@ -13,6 +13,7 @@ import {
 } from '@/middlewares/auth';
 import { errors, AppError } from '@/middlewares/errorHandler';
 import { logger } from '@/utils/logger';
+import { normalizePhone } from '@/utils/phone';
 import { UserRole, UserStatus, OTPPurpose } from '@gomookambika/types';
 import type { IOTPProvider } from '@/providers/otp/IOTPProvider';
 import { OTPProviderFactory } from '@/providers/otp/OTPProviderFactory';
@@ -46,11 +47,12 @@ export class AuthService {
   // ─── OTP ─────────────────────────────────────────────────────
 
   async requestOTP(phone: string, purpose: OTPPurpose, ipAddress: string): Promise<void> {
+    const normalizedPhone = normalizePhone(phone);
     const redis = getRedis();
 
     // Check resend cooldown (Redis-backed, skipped if Redis unavailable)
     if (redis) {
-      const cooldownKey = redisKeys.otpCooldown(phone);
+      const cooldownKey = redisKeys.otpCooldown(normalizedPhone);
       const cooldown = await redis.get(cooldownKey);
       if (cooldown) {
         const ttl = await redis.ttl(cooldownKey);
@@ -67,13 +69,13 @@ export class AuthService {
 
     // Invalidate any previous OTP for this phone+purpose
     await OTPRecord.updateMany(
-      { phone, purpose, usedAt: null },
+      { phone: { $in: [normalizedPhone, phone] }, purpose, usedAt: null },
       { $set: { expiresAt: new Date(0) } }
     );
 
     // Store new OTP record in MongoDB
     await OTPRecord.create({
-      phone,
+      phone: normalizedPhone,
       otpHash,
       purpose,
       attempts: 0,
@@ -83,17 +85,17 @@ export class AuthService {
 
     // Set resend cooldown in Redis (best-effort)
     if (redis) {
-      await redis.setex(redisKeys.otpCooldown(phone), config.OTP_RESEND_COOLDOWN_SECONDS, '1').catch(() => {});
+      await redis.setex(redisKeys.otpCooldown(normalizedPhone), config.OTP_RESEND_COOLDOWN_SECONDS, '1').catch(() => {});
     }
 
     // Send OTP
     if (config.NODE_ENV !== 'production' && config.DEV_OTP_ENABLED) {
-      logger.info(`[DEV OTP] Phone: ${phone} OTP: ${otp} Purpose: ${purpose}`);
+      logger.info(`[DEV OTP] Phone: ${normalizedPhone} OTP: ${otp} Purpose: ${purpose}`);
     } else {
-      await this.otpProvider.sendOTP(phone, otp);
+      await this.otpProvider.sendOTP(normalizedPhone, otp);
     }
 
-    logger.info(`OTP sent to ${phone} for purpose ${purpose}`);
+    logger.info(`OTP sent to ${normalizedPhone} for purpose ${purpose}`);
   }
 
   async verifyOTP(
@@ -102,13 +104,15 @@ export class AuthService {
     purpose: OTPPurpose,
     ipAddress: string
   ): Promise<AuthResult> {
+    const normalizedPhone = normalizePhone(phone);
+
     // Use dev OTP in development
     if (config.NODE_ENV !== 'production' && config.DEV_OTP_ENABLED && otp === config.DEV_OTP) {
-      return this.loginOrRegister(phone, purpose);
+      return this.loginOrRegister(normalizedPhone, purpose);
     }
 
     const record = await OTPRecord.findOne({
-      phone,
+      phone: { $in: [normalizedPhone, phone] },
       purpose,
       usedAt: null,
       expiresAt: { $gt: new Date() },
@@ -143,13 +147,62 @@ export class AuthService {
     record.usedAt = new Date();
     await record.save();
 
-    return this.loginOrRegister(phone, purpose);
+    return this.loginOrRegister(normalizedPhone, purpose);
   }
 
   private async loginOrRegister(phone: string, purpose: OTPPurpose): Promise<AuthResult> {
     let isNewUser = false;
+    const normalizedPhone = normalizePhone(phone);
+    const rawDigits = phone.replace(/\D/g, '').slice(-10);
 
-    let user = await User.findOne({ phone });
+    let user = await User.findOne({
+      $or: [
+        { phone: normalizedPhone },
+        { phone },
+        { phone: rawDigits },
+        { phone: `+91${rawDigits}` },
+      ],
+    });
+
+    // Check if there is an existing driver registered with this phone
+    const driver = await Driver.findOne({
+      $or: [
+        { phone: normalizedPhone },
+        { phone },
+        { phone: rawDigits },
+        { phone: `+91${rawDigits}` },
+      ],
+    });
+
+    if (driver) {
+      if (user) {
+        // Ensure user has DRIVER role if not admin/super-admin
+        if (user.role !== UserRole.DRIVER && user.role !== UserRole.SUPER_ADMIN && user.role !== UserRole.ASSOCIATION_ADMIN) {
+          user.role = UserRole.DRIVER;
+        }
+        if (driver.userId?.toString() !== user._id.toString()) {
+          driver.userId = user._id;
+        }
+        if (driver.phone !== normalizedPhone) {
+          driver.phone = normalizedPhone;
+        }
+        await driver.save();
+      } else {
+        // Driver exists in DB but User account not yet created: auto-create with DRIVER role
+        user = await User.create({
+          phone: normalizedPhone,
+          name: driver.name,
+          role: UserRole.DRIVER,
+          permissions: [],
+          status: UserStatus.ACTIVE,
+        });
+        driver.userId = user._id;
+        if (driver.phone !== normalizedPhone) {
+          driver.phone = normalizedPhone;
+        }
+        await driver.save();
+      }
+    }
 
     if (!user) {
       if (purpose !== OTPPurpose.LOGIN) {
@@ -158,14 +211,18 @@ export class AuthService {
 
       // Auto-register new customer
       user = await User.create({
-        phone,
-        name: `User ${phone.slice(-4)}`, // Temporary name, user can update
+        phone: normalizedPhone,
+        name: `User ${normalizedPhone.slice(-4)}`,
         role: UserRole.CUSTOMER,
         permissions: [],
         status: UserStatus.ACTIVE,
       });
       isNewUser = true;
-      logger.info(`New user registered: ${phone}`);
+      logger.info(`New user registered: ${normalizedPhone}`);
+    }
+
+    if (user.phone !== normalizedPhone) {
+      user.phone = normalizedPhone;
     }
 
     if (user.status === UserStatus.SUSPENDED) {

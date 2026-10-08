@@ -291,6 +291,28 @@ export interface PriceSlab {
   price: number;
 }
 
+export interface PricingRuleItem {
+  _id: string;
+  name: string;
+  ruleType: PriceRuleType;
+  priority: number;
+  vehicleCategoryId?: string | { _id: string; name: string; code?: string };
+  originLocationId?: string | { _id: string; name: string; type?: string; address?: { city?: string } };
+  destinationLocationId?: string | { _id: string; name: string; type?: string; address?: { city?: string } };
+  isBidirectional?: boolean;
+  tripType?: TripType;
+  fixedPrice?: number;
+  baseFare?: number;
+  minimumKm?: number;
+  ratePerKm?: number;
+  includedKm?: number;
+  extraKmRate?: number;
+  description?: string;
+  status: Status;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 export interface OperatingHours {
   dayOfWeek: number; // 0=Sunday ... 6=Saturday
   openTime: string; // "HH:MM"

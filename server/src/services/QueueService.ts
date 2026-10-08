@@ -9,12 +9,14 @@ import { errors } from '@/middlewares/errorHandler';
 import { logger } from '@/utils/logger';
 import { getRedis, redisKeys } from '@/config/redis';
 import { config } from '@/config/env';
+import { Trip } from '@/models/Trip';
 import {
   QueueEntryStatus,
   DriverStatus,
   VehicleStatus,
   Status,
   QueuePolicy,
+  TripStatus,
 } from '@gomookambika/types';
 
 export interface JoinQueueInput {
@@ -60,16 +62,26 @@ export class QueueService {
     const stand = await TaxiStand.findById(taxiStandId).populate('locationId');
     if (!stand) throw errors.notFound('Taxi Stand');
 
-    const location = stand.locationId as unknown as { geoPoint: { coordinates: [number, number] }; name: string };
-    if (!location?.geoPoint) throw errors.notFound('Location');
+    const location = stand.locationId as unknown as { geoPoint?: { coordinates?: [number, number] }; name?: string };
+    const locCoords = location?.geoPoint?.coordinates;
 
     // 3. Validate driver
     const driver = await Driver.findOne({
-      _id: driverId,
-      status: { $in: [DriverStatus.AVAILABLE, DriverStatus.OFFLINE] },
+      $or: [{ _id: driverId }, { userId: driverId }],
     });
-    if (!driver) throw errors.driverNotActive();
+    if (!driver) throw errors.notFound('Driver');
+    if (driver.status === DriverStatus.SUSPENDED) {
+      throw errors.badRequest('Driver account is suspended. Please contact the association.');
+    }
 
+    // Check if driver has an ongoing active trip
+    const activeTrip = await Trip.findOne({
+      $or: [{ driverId: driver._id }, { driverId: driver.userId }],
+      status: { $in: [TripStatus.DRIVER_ACCEPTED, TripStatus.DRIVER_ARRIVED, TripStatus.TRIP_STARTED, TripStatus.TRIP_IN_PROGRESS] },
+    });
+    if (activeTrip) {
+      throw errors.badRequest('Driver is currently on an active trip', 'DRIVER_ON_TRIP');
+    }
 
     // Find vehicle assigned to this driver
     const assignedVehicle = await Vehicle.findOne({
@@ -78,17 +90,19 @@ export class QueueService {
     }).populate('categoryId');
     if (!assignedVehicle) throw errors.vehicleNotActive();
 
-    // 5. GPS validation — must be within radius
-    const distanceMeters = this.haversineDistanceMeters(
-      latitude,
-      longitude,
-      location.geoPoint.coordinates[1], // lat
-      location.geoPoint.coordinates[0]  // lng
-    );
+    // 5. GPS validation — check radius if coordinates are configured
+    if (locCoords && locCoords.length === 2 && !isNaN(locCoords[0]) && !isNaN(locCoords[1])) {
+      const distanceMeters = this.haversineDistanceMeters(
+        latitude,
+        longitude,
+        locCoords[1], // lat
+        locCoords[0]  // lng
+      );
 
-    const allowedRadius = stand.queueRadius || config.QUEUE_RADIUS_METERS;
-    if (distanceMeters > allowedRadius) {
-      throw errors.driverOutsideRadius();
+      const allowedRadius = stand.queueRadius || config.QUEUE_RADIUS_METERS;
+      if (config.NODE_ENV === 'production' && distanceMeters > allowedRadius) {
+        throw errors.driverOutsideRadius();
+      }
     }
 
     // 6. Check if driver already in active queue
@@ -96,7 +110,26 @@ export class QueueService {
       driverId: driver._id,
       status: { $in: [QueueEntryStatus.WAITING, QueueEntryStatus.OFFERED] },
     });
-    if (existingEntry) throw errors.driverAlreadyInQueue();
+    if (existingEntry) {
+      // If already waiting at THIS taxi stand, return existing queue entry gracefully
+      if (existingEntry.taxiStandId.toString() === stand._id.toString()) {
+        const catName = (assignedVehicle.categoryId as unknown as { name?: string })?.name || 'Sedan';
+        logger.info(`Driver ${driverId} already in queue at ${stand.name} (position: ${existingEntry.position})`);
+        return {
+          queueEntryId: existingEntry._id.toString(),
+          taxiStandId: stand._id.toString(),
+          taxiStandName: stand.name,
+          locationName: location.name || stand.name || 'Unknown',
+          position: existingEntry.position,
+          category: catName,
+        };
+      }
+      // If queued at another taxi stand or stale offer, remove old entry and proceed to join here
+      await QueueEntry.findByIdAndUpdate(existingEntry._id, {
+        status: QueueEntryStatus.LEFT,
+        leftAt: new Date(),
+      });
+    }
 
     // 7. Check vehicle category allowed at this stand
     const vehicleCategory = (assignedVehicle.categoryId as unknown as { _id: mongoose.Types.ObjectId });
@@ -136,50 +169,89 @@ export class QueueService {
     const nextPosition = lastEntry ? lastEntry.position + 1 : 1;
 
     // 11. Create queue entry (in a session for atomicity)
-    const session = await mongoose.startSession();
+    // 11. Create queue entry (with transaction when supported, standalone fallback)
     let queueEntry: IQueueEntry;
 
     try {
-      await session.withTransaction(async () => {
-        // Create queue entry
-        const [entry] = await QueueEntry.create(
-          [
+      const session = await mongoose.startSession();
+      try {
+        await session.withTransaction(async () => {
+          // Create queue entry
+          const [entry] = await QueueEntry.create(
+            [
+              {
+                taxiStandId: stand._id,
+                driverId: driver._id,
+                vehicleId: assignedVehicle._id,
+                vehicleCategoryId: vehicleCategory._id,
+                joinedAt: new Date(),
+                position: nextPosition,
+                status: QueueEntryStatus.WAITING,
+                lastLocation: {
+                  type: 'Point',
+                  coordinates: [longitude, latitude],
+                },
+                lastHeartbeat: new Date(),
+              },
+            ],
+            { session }
+          );
+          queueEntry = entry;
+
+          // Update driver status
+          await Driver.findByIdAndUpdate(
+            driver._id,
             {
-              taxiStandId: stand._id,
-              driverId: driver._id,
-              vehicleId: assignedVehicle._id,
-              vehicleCategoryId: vehicleCategory._id,
-              joinedAt: new Date(),
-              position: nextPosition,
-              status: QueueEntryStatus.WAITING,
-              lastLocation: {
+              status: DriverStatus.IN_QUEUE,
+              activeQueueEntryId: entry._id,
+              currentLocation: {
                 type: 'Point',
                 coordinates: [longitude, latitude],
               },
-              lastHeartbeat: new Date(),
+              lastSeen: new Date(),
             },
-          ],
-          { session }
-        );
-        queueEntry = entry;
-
-        // Update driver status
-        await Driver.findByIdAndUpdate(
-          driver._id,
+            { session }
+          );
+        });
+      } finally {
+        await session.endSession();
+      }
+    } catch (err: any) {
+      if (
+        err?.message?.includes('replica set member') ||
+        err?.message?.includes('Transaction numbers are only allowed')
+      ) {
+        // Fallback for standalone MongoDB
+        const [entry] = await QueueEntry.create([
           {
-            status: DriverStatus.IN_QUEUE,
-            activeQueueEntryId: entry._id,
-            currentLocation: {
+            taxiStandId: stand._id,
+            driverId: driver._id,
+            vehicleId: assignedVehicle._id,
+            vehicleCategoryId: vehicleCategory._id,
+            joinedAt: new Date(),
+            position: nextPosition,
+            status: QueueEntryStatus.WAITING,
+            lastLocation: {
               type: 'Point',
               coordinates: [longitude, latitude],
             },
-            lastSeen: new Date(),
+            lastHeartbeat: new Date(),
           },
-          { session }
-        );
-      });
-    } finally {
-      await session.endSession();
+        ]);
+        queueEntry = entry;
+
+        await Driver.findByIdAndUpdate(driver._id, {
+          status: DriverStatus.IN_QUEUE,
+          activeQueueEntryId: entry._id,
+          currentLocation: {
+            type: 'Point',
+            coordinates: [longitude, latitude],
+          },
+          lastSeen: new Date(),
+        });
+      } else {
+        throw err;
+      }
     }
 
     // 12. Set up heartbeat monitoring key in Redis (best-effort)
@@ -198,7 +270,7 @@ export class QueueService {
       queueEntryId: queueEntry!._id.toString(),
       taxiStandId: stand._id.toString(),
       taxiStandName: stand.name,
-      locationName: location.name,
+      locationName: location.name || stand.name || 'Unknown',
       position: nextPosition,
       category: (assignedVehicle.categoryId as unknown as { name: string }).name || 'Unknown',
     };
@@ -207,8 +279,13 @@ export class QueueService {
   // ─── LEAVE QUEUE ─────────────────────────────────────────────
 
   async leaveQueue(driverId: string): Promise<void> {
+    const driver = await Driver.findOne({
+      $or: [{ _id: driverId }, { userId: driverId }],
+    });
+    const targetDriverId = driver ? driver._id : driverId;
+
     const entry = await QueueEntry.findOne({
-      driverId,
+      $or: [{ driverId: targetDriverId }, { driverId }],
       status: { $in: [QueueEntryStatus.WAITING] },
     });
 
@@ -216,34 +293,55 @@ export class QueueService {
       throw errors.notFound('Active queue entry');
     }
 
-    const session = await mongoose.startSession();
     try {
-      await session.withTransaction(async () => {
-        // Mark entry as left
-        await QueueEntry.findByIdAndUpdate(
-          entry._id,
-          {
-            status: QueueEntryStatus.LEFT,
-            leftAt: new Date(),
-          },
-          { session }
-        );
+      const session = await mongoose.startSession();
+      try {
+        await session.withTransaction(async () => {
+          // Mark entry as left
+          await QueueEntry.findByIdAndUpdate(
+            entry._id,
+            {
+              status: QueueEntryStatus.LEFT,
+              leftAt: new Date(),
+            },
+            { session }
+          );
 
-        // Update driver status
-        await Driver.findByIdAndUpdate(
-          driverId,
-          {
-            status: DriverStatus.AVAILABLE,
-            activeQueueEntryId: null,
-          },
-          { session }
-        );
+          // Update driver status
+          await Driver.findByIdAndUpdate(
+            targetDriverId,
+            {
+              status: DriverStatus.AVAILABLE,
+              activeQueueEntryId: null,
+            },
+            { session }
+          );
 
-        // Reorder positions for remaining drivers in queue
-        await this.reorderPositions(entry.taxiStandId.toString(), entry.position, session);
-      });
-    } finally {
-      await session.endSession();
+          // Reorder positions for remaining drivers in queue
+          await this.reorderPositions(entry.taxiStandId.toString(), entry.position, session);
+        });
+      } finally {
+        await session.endSession();
+      }
+    } catch (err: any) {
+      if (
+        err?.message?.includes('replica set member') ||
+        err?.message?.includes('Transaction numbers are only allowed')
+      ) {
+        await QueueEntry.findByIdAndUpdate(entry._id, {
+          status: QueueEntryStatus.LEFT,
+          leftAt: new Date(),
+        });
+
+        await Driver.findByIdAndUpdate(targetDriverId, {
+          status: DriverStatus.AVAILABLE,
+          activeQueueEntryId: null,
+        });
+
+        await this.reorderPositions(entry.taxiStandId.toString(), entry.position);
+      } else {
+        throw err;
+      }
     }
 
     logger.info(`Driver ${driverId} left queue (was position ${entry.position})`);
@@ -254,9 +352,14 @@ export class QueueService {
   async processHeartbeat(input: HeartbeatInput): Promise<HeartbeatResult> {
     const { queueEntryId, driverId, latitude, longitude } = input;
 
+    const driver = await Driver.findOne({
+      $or: [{ _id: driverId }, { userId: driverId }],
+    });
+    const targetDriverId = driver ? driver._id : driverId;
+
     const entry = await QueueEntry.findOne({
       _id: queueEntryId,
-      driverId,
+      $or: [{ driverId: targetDriverId }, { driverId }],
       status: QueueEntryStatus.WAITING,
     });
 
@@ -267,13 +370,16 @@ export class QueueService {
     const stand = await TaxiStand.findById(entry.taxiStandId).populate('locationId');
     if (!stand) throw errors.notFound('Taxi Stand');
 
-    const location = stand.locationId as unknown as { geoPoint: { coordinates: [number, number] } };
-    const distanceMeters = this.haversineDistanceMeters(
-      latitude,
-      longitude,
-      location.geoPoint.coordinates[1],
-      location.geoPoint.coordinates[0]
-    );
+    const location = stand.locationId as unknown as { geoPoint?: { coordinates?: [number, number] } };
+    const locCoords = location?.geoPoint?.coordinates;
+    const distanceMeters = (locCoords && locCoords.length === 2 && !isNaN(locCoords[0]) && !isNaN(locCoords[1]))
+      ? this.haversineDistanceMeters(
+          latitude,
+          longitude,
+          locCoords[1],
+          locCoords[0]
+        )
+      : 0;
 
     const allowedRadius = stand.queueRadius || config.QUEUE_RADIUS_METERS;
     const withinRadius = distanceMeters <= allowedRadius;
@@ -319,20 +425,31 @@ export class QueueService {
   // ─── GET ELIGIBLE DRIVERS ────────────────────────────────────
 
   async getEligibleDrivers(
-    taxiStandId: string,
-    vehicleCategoryId: string,
+    taxiStandId?: string,
+    vehicleCategoryId?: string,
     policy: QueuePolicy = QueuePolicy.FIFO
   ): Promise<IQueueEntry[]> {
     const query: Record<string, unknown> = {
-      taxiStandId,
       status: QueueEntryStatus.WAITING,
     };
 
-    if (policy !== QueuePolicy.NEAREST_ELIGIBLE) {
+    if (taxiStandId && taxiStandId.trim() !== '') {
+      query.taxiStandId = taxiStandId;
+    }
+
+    if (policy !== QueuePolicy.NEAREST_ELIGIBLE && vehicleCategoryId && vehicleCategoryId.trim() !== '') {
       query.vehicleCategoryId = vehicleCategoryId;
     }
 
-    return QueueEntry.find(query).sort({ position: 1, joinedAt: 1 }).limit(10);
+    let entries = await QueueEntry.find(query).sort({ position: 1, joinedAt: 1 }).limit(10);
+
+    // If no entries matched with specific vehicle category, fallback to any available driver at stand/queue
+    if (entries.length === 0 && query.vehicleCategoryId) {
+      delete query.vehicleCategoryId;
+      entries = await QueueEntry.find(query).sort({ position: 1, joinedAt: 1 }).limit(10);
+    }
+
+    return entries;
   }
 
   // ─── INTERNAL HELPERS ────────────────────────────────────────

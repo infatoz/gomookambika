@@ -27,7 +27,7 @@ export class BookingController {
       { latitude: dropLatitude, longitude: dropLongitude }
     );
 
-    const { fareBreakdown, appliedRuleName } = await fareService.calculateFare({
+    const { fareBreakdown, appliedRuleName, appliedRuleType, isFixedFare, ratePerKm } = await fareService.calculateFare({
       distanceKm,
       durationMinutes: route?.durationMinutes,
       vehicleCategoryId,
@@ -42,6 +42,9 @@ export class BookingController {
       data: {
         fareBreakdown,
         appliedRule: appliedRuleName,
+        appliedRuleType,
+        isFixedFare,
+        ratePerKm,
         routeDistanceKm: distanceKm,
         estimatedDurationMinutes: route?.durationMinutes,
         routePolyline: route?.polyline,
@@ -125,26 +128,35 @@ export class BookingController {
 }
 
 export class TripController {
+  private async getDriverId(userId: string): Promise<string> {
+    const { Driver } = await import('@/models/Driver');
+    const driver = await Driver.findOne({
+      $or: [{ userId }, { _id: userId }],
+    });
+    return driver ? driver._id.toString() : userId;
+  }
+
   // POST /api/v1/trips/:id/accept
   async acceptTrip(req: Request, res: Response): Promise<void> {
-    const driverId = req.user!.userId;
-    const { bookingId } = req.body;
+    const driverId = await this.getDriverId(req.user!.userId);
+    const bookingId = req.body?.bookingId || req.params.id;
     const trip = await bookingService.acceptTrip(driverId, bookingId);
     res.json({ success: true, message: 'Trip accepted', data: trip });
   }
 
   // POST /api/v1/trips/:id/decline
   async declineTrip(req: Request, res: Response): Promise<void> {
-    const driverId = req.user!.userId;
-    const { bookingId } = req.body;
+    const driverId = await this.getDriverId(req.user!.userId);
+    const bookingId = req.body?.bookingId || req.params.id;
     await bookingService.declineTrip(driverId, bookingId);
     res.json({ success: true, message: 'Trip declined' });
   }
 
   // POST /api/v1/trips/:id/arrived
   async driverArrived(req: Request, res: Response): Promise<void> {
+    const driverId = await this.getDriverId(req.user!.userId);
     const trip = await Trip.findOneAndUpdate(
-      { _id: req.params.id, driverId: req.user!.userId, status: 'DRIVER_ACCEPTED' },
+      { _id: req.params.id, $or: [{ driverId }, { driverId: req.user!.userId }], status: 'DRIVER_ACCEPTED' },
       { status: 'DRIVER_ARRIVED', driverArrivedAt: new Date() },
       { new: true }
     );
@@ -164,9 +176,10 @@ export class TripController {
   // POST /api/v1/trips/:id/start
   async startTrip(req: Request, res: Response): Promise<void> {
     const { otp } = req.body;
+    const driverId = await this.getDriverId(req.user!.userId);
     const trip = await Trip.findOne({
       _id: req.params.id,
-      driverId: req.user!.userId,
+      $or: [{ driverId }, { driverId: req.user!.userId }],
       status: 'DRIVER_ARRIVED',
     }).select('+startOTPHash');
 
@@ -200,9 +213,10 @@ export class TripController {
   // POST /api/v1/trips/:id/complete
   async completeTrip(req: Request, res: Response): Promise<void> {
     const { actualDistanceKm, actualDurationMinutes } = req.body;
+    const driverId = await this.getDriverId(req.user!.userId);
     const trip = await Trip.findOne({
       _id: req.params.id,
-      driverId: req.user!.userId,
+      $or: [{ driverId }, { driverId: req.user!.userId }],
       status: { $in: ['TRIP_STARTED', 'TRIP_IN_PROGRESS'] },
     });
     if (!trip) throw errors.notFound('Trip');

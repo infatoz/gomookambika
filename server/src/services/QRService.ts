@@ -109,6 +109,9 @@ export class QRService {
   async validateQRToken(
     token: string
   ): Promise<{ taxiStandId: string; tokenId: string }> {
+    if (!token || typeof token !== 'string') {
+      throw errors.qrInvalid();
+    }
     const parts = token.split('.');
     if (parts.length !== 2) {
       throw errors.qrInvalid();
@@ -118,7 +121,8 @@ export class QRService {
 
     // Verify signature
     const expectedSig = this.sign(Buffer.from(payloadB64, 'base64url').toString());
-    if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expectedSig))) {
+    if (signature !== expectedSig) {
+      logger.warn(`QR signature mismatch: got ${signature}, expected ${expectedSig}`);
       throw errors.qrInvalid();
     }
 
@@ -126,7 +130,8 @@ export class QRService {
     let payload: QRTokenPayload;
     try {
       payload = JSON.parse(Buffer.from(payloadB64, 'base64url').toString());
-    } catch {
+    } catch (e) {
+      logger.warn('Failed to parse QR payload JSON', e);
       throw errors.qrInvalid();
     }
 
@@ -143,6 +148,7 @@ export class QRService {
     });
 
     if (!stand) {
+      logger.warn(`Taxi stand not found with active token: standId=${payload.taxiStandId}, tokenId=${payload.tokenId}`);
       throw errors.qrInvalid();
     }
 

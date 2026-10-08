@@ -17,11 +17,15 @@ export interface IPricingRule extends Document {
   vehicleCategoryId?: Types.ObjectId;
   originLocationId?: Types.ObjectId;
   destinationLocationId?: Types.ObjectId;
+  isBidirectional?: boolean;
   tripType?: TripType;
   fixedPrice?: number;
   baseFare?: number;
   minimumKm?: number;
   ratePerKm?: number;
+  includedKm?: number;
+  extraKmRate?: number;
+  description?: string;
   slabs?: IPriceSlab[];
   validFrom?: Date;
   validTo?: Date;
@@ -54,11 +58,15 @@ const pricingRuleSchema = new Schema<IPricingRule>(
       type: Schema.Types.ObjectId,
       ref: 'Location',
     },
+    isBidirectional: { type: Boolean, default: true },
     tripType: { type: String, enum: Object.values(TripType) },
     fixedPrice: { type: Number, min: 0 },
     baseFare: { type: Number, min: 0 },
     minimumKm: { type: Number, min: 0 },
     ratePerKm: { type: Number, min: 0 },
+    includedKm: { type: Number, min: 0 },
+    extraKmRate: { type: Number, min: 0 },
+    description: { type: String, trim: true, maxlength: 500 },
     slabs: [
       {
         fromKm: { type: Number, required: true, min: 0 },

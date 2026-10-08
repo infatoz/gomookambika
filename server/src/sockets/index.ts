@@ -14,6 +14,10 @@ export function getIO(): SocketServer {
   return io;
 }
 
+export function tryGetIO(): SocketServer | null {
+  return io ?? null;
+}
+
 export function initializeSocket(server: http.Server): SocketServer {
   io = new SocketServer(server, {
     cors: {
@@ -51,6 +55,18 @@ export function initializeSocket(server: http.Server): SocketServer {
 
     // ─── JOIN PERSONAL ROOM ────────────────────────────────
     socket.join(`${role.toLowerCase()}:${userId}`);
+
+    // If driver, also join room with driver document id
+    if (role === 'DRIVER') {
+      Driver.findOne({ $or: [{ userId }, { _id: userId }] })
+        .then(driver => {
+          if (driver) {
+            socket.join(`driver:${driver._id.toString()}`);
+            logger.info(`Driver socket ${socket.id} joined room driver:${driver._id.toString()}`);
+          }
+        })
+        .catch(err => logger.error('Error finding driver for socket room:', err));
+    }
 
     // Admin joins ops room
     if (['SUPER_ADMIN', 'ASSOCIATION_ADMIN', 'OPERATIONS_MANAGER', 'QUEUE_MANAGER'].includes(role)) {

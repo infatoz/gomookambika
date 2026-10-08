@@ -17,8 +17,8 @@ router.get('/:id', bookingController.getBooking.bind(bookingController));
 router.post('/:id/cancel', bookingController.cancelBooking.bind(bookingController));
 
 // Trip routes (driver)
-router.post('/:id/accept', requireRoles(UserRole.DRIVER), validate(z.object({ bookingId: z.string() })), tripController.acceptTrip.bind(tripController));
-router.post('/:id/decline', requireRoles(UserRole.DRIVER), validate(z.object({ bookingId: z.string() })), tripController.declineTrip.bind(tripController));
+router.post('/:id/accept', requireRoles(UserRole.DRIVER), validate(z.object({ bookingId: z.string().optional() })), tripController.acceptTrip.bind(tripController));
+router.post('/:id/decline', requireRoles(UserRole.DRIVER), validate(z.object({ bookingId: z.string().optional() })), tripController.declineTrip.bind(tripController));
 router.post('/:id/arrived', requireRoles(UserRole.DRIVER), tripController.driverArrived.bind(tripController));
 router.post('/:id/start', requireRoles(UserRole.DRIVER), validate(z.object({ otp: z.string().length(6) })), tripController.startTrip.bind(tripController));
 router.post('/:id/complete', requireRoles(UserRole.DRIVER), tripController.completeTrip.bind(tripController));

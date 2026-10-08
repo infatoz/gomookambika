@@ -9,6 +9,7 @@ import { VehiclesPage } from '@/pages/VehiclesPage';
 import { VehicleCategoriesPage } from '@/pages/VehicleCategoriesPage';
 import { LocationsPage } from '@/pages/LocationsPage';
 import { TaxiStandsPage } from '@/pages/TaxiStandsPage';
+import { PricingRulesPage } from '@/pages/PricingRulesPage';
 import { BookingsPage } from '@/pages/BookingsPage';
 import { QueuePage } from '@/pages/QueuePage';
 import { SettingsPage } from '@/pages/SettingsPage';
@@ -36,6 +37,7 @@ export default function App() {
           <Route path="vehicles/categories" element={<VehicleCategoriesPage />} />
           <Route path="locations/*" element={<LocationsPage />} />
           <Route path="taxi-stands/*" element={<TaxiStandsPage />} />
+          <Route path="pricing-rules/*" element={<PricingRulesPage />} />
           <Route path="bookings/*" element={<BookingsPage />} />
           <Route path="queue/*" element={<QueuePage />} />
           <Route path="settings/*" element={<SettingsPage />} />

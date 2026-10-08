@@ -18,6 +18,7 @@ import { Driver } from '@/models/Driver';
 import { User } from '@/models/User';
 import { errors } from '@/middlewares/errorHandler';
 import { vehicleIconUpload } from '@/middlewares/upload';
+import { normalizePhone } from '@/utils/phone';
 import argon2 from 'argon2';
 
 const router = Router();
@@ -48,13 +49,28 @@ router.get('/drivers/:id', adminController.getDriver.bind(adminController));
 router.post('/drivers', requirePermission('driver.create'), async (req, res) => {
   const { name, phone, email, address, licenseNumber, licenseExpiry, joiningDate } = req.body;
 
+  const normalizedPhone = normalizePhone(phone);
+  const rawDigits = phone ? String(phone).replace(/\D/g, '').slice(-10) : '';
+
   // Check if a driver with this phone already exists
-  const existingDriver = await Driver.findOne({ phone });
+  const existingDriver = await Driver.findOne({
+    $or: [
+      { phone: normalizedPhone },
+      { phone },
+      ...(rawDigits ? [{ phone: rawDigits }, { phone: `+91${rawDigits}` }] : []),
+    ],
+  });
   if (existingDriver) {
     throw errors.conflict('A driver with this phone number already exists');
   }
 
-  let user = await User.findOne({ phone });
+  let user = await User.findOne({
+    $or: [
+      { phone: normalizedPhone },
+      { phone },
+      ...(rawDigits ? [{ phone: rawDigits }, { phone: `+91${rawDigits}` }] : []),
+    ],
+  });
   let userCreatedInThisRequest = false;
 
   if (user) {
@@ -63,14 +79,15 @@ router.post('/drivers', requirePermission('driver.create'), async (req, res) => 
     if (linkedDriver) {
       throw errors.conflict('User account is already linked to another driver');
     }
-    // Reuse existing user and ensure role is DRIVER
+    // Reuse existing user and ensure role is DRIVER and phone is normalized
     user.role = UserRole.DRIVER;
     user.status = UserStatus.ACTIVE;
+    user.phone = normalizedPhone;
     if (name) user.name = name;
     if (email) user.email = email;
     await user.save();
   } else {
-    user = await User.create({ name, phone, email, role: UserRole.DRIVER, status: UserStatus.ACTIVE });
+    user = await User.create({ name, phone: normalizedPhone, email, role: UserRole.DRIVER, status: UserStatus.ACTIVE });
     userCreatedInThisRequest = true;
   }
 
@@ -92,7 +109,7 @@ router.post('/drivers', requirePermission('driver.create'), async (req, res) => 
       userId: user._id,
       driverCode,
       name,
-      phone,
+      phone: normalizedPhone,
       email,
       address: safeAddress,
       licenseNumber: licenseNumber || `KA-${Date.now().toString().slice(-8)}`,
@@ -578,6 +595,85 @@ router.get('/bookings/:id', requirePermission('booking.view'), async (req, res) 
   res.json({ success: true, data: booking });
 });
 
+// POST /admin/bookings - Dispatch new booking to queue driver
+router.post('/bookings', requirePermission('booking.view'), async (req, res) => {
+  const { User } = await import('@/models/User');
+  const { Booking } = await import('@/models/Booking');
+  const { bookingService } = await import('@/services/BookingService');
+
+  const {
+    customerName,
+    customerPhone,
+    customerEmail,
+    tripType = 'ONE_WAY',
+    originTaxiStandId,
+    destinationTaxiStandId,
+    pickupLocation,
+    dropLocation,
+    vehicleCategoryId,
+    passengers = 1,
+    paymentOption = 'CASH',
+    notes,
+    scheduledAt,
+  } = req.body;
+
+  if (!customerPhone || !pickupLocation || !vehicleCategoryId) {
+    throw errors.badRequest('Customer phone, pickup location, and vehicle category are required');
+  }
+
+  // Normalize phone number
+  const cleanPhone = String(customerPhone).replace(/\D/g, '').slice(-10);
+  if (cleanPhone.length < 10) {
+    throw errors.badRequest('Please enter a valid 10-digit mobile number');
+  }
+  const formattedPhone = `+91${cleanPhone}`;
+
+  // Find or create customer
+  let customer = await User.findOne({ phone: formattedPhone });
+  if (!customer) {
+    customer = await User.create({
+      name: customerName?.trim() || `Customer ${cleanPhone.slice(-4)}`,
+      phone: formattedPhone,
+      email: customerEmail || `customer_${cleanPhone}@gomookambika.com`,
+      role: UserRole.CUSTOMER,
+      isPhoneVerified: true,
+      status: 'ACTIVE',
+    });
+  } else if (customerName && customerName.trim() && customer.name !== customerName.trim()) {
+    customer.name = customerName.trim();
+    await customer.save();
+  }
+
+  const booking = await bookingService.createBooking({
+    customerId: customer._id.toString(),
+    tripType,
+    pickupLocation,
+    dropLocation,
+    vehicleCategoryId,
+    originTaxiStandId: originTaxiStandId || undefined,
+    destinationTaxiStandId: destinationTaxiStandId || undefined,
+    passengers: Number(passengers) || 1,
+    paymentOption,
+    notes,
+    scheduledAt: scheduledAt ? new Date(scheduledAt) : undefined,
+  });
+
+  // Populate references for the response
+  const populatedBooking = await Booking.findById(booking._id)
+    .populate('customerId', 'name phone email')
+    .populate('assignedDriverId', 'name phone driverCode rating')
+    .populate('assignedVehicleId', 'registrationNumber brand vehicleModel')
+    .populate('vehicleCategoryId', 'name code icon baseFare ratePerKm')
+    .populate('originTaxiStandId', 'name')
+    .populate('destinationTaxiStandId', 'name');
+
+  res.status(201).json({
+    success: true,
+    message: 'Booking created successfully and dispatched to queue!',
+    data: populatedBooking,
+  });
+});
+
 // ─── AUDIT LOGS ──────────────────────────────────────────────
 router.get('/audit-logs', requirePermission('report.view'), adminController.getAuditLogs.bind(adminController));
 
@@ -677,6 +773,346 @@ router.put('/settings', requireRoles(UserRole.SUPER_ADMIN, UserRole.ASSOCIATION_
   }
 
   res.json({ success: true, message: 'Settings saved successfully', data: merged });
+});
+
+// ─── FIXED ROUTE FARES & PRICING RULES ────────────────────────
+router.get('/pricing-rules', async (req, res) => {
+  const { PricingRule } = await import('@/models/PricingRule');
+  const { search, ruleType, vehicleCategoryId, status, page = 1, limit = 50 } = req.query;
+
+  const filter: Record<string, unknown> = {};
+  if (status) filter.status = status;
+  if (ruleType) filter.ruleType = ruleType;
+  if (vehicleCategoryId) filter.vehicleCategoryId = vehicleCategoryId;
+  if (search) {
+    filter.$or = [
+      { name: { $regex: search as string, $options: 'i' } },
+      { description: { $regex: search as string, $options: 'i' } },
+    ];
+  }
+
+  const p = Math.max(1, Number(page));
+  const l = Math.min(100, Math.max(1, Number(limit)));
+
+  const [rules, total] = await Promise.all([
+    PricingRule.find(filter)
+      .populate('originLocationId', 'name type address')
+      .populate('destinationLocationId', 'name type address')
+      .populate('vehicleCategoryId', 'name code')
+      .sort({ priority: 1, createdAt: -1 })
+      .skip((p - 1) * l)
+      .limit(l),
+    PricingRule.countDocuments(filter),
+  ]);
+
+  res.json({
+    success: true,
+    data: rules,
+    pagination: { page: p, limit: l, total, pages: Math.ceil(total / l) },
+  });
+});
+
+router.get('/pricing-rules/:id', async (req, res) => {
+  const { PricingRule } = await import('@/models/PricingRule');
+  const rule = await PricingRule.findById(req.params.id)
+    .populate('originLocationId', 'name type address geoPoint')
+    .populate('destinationLocationId', 'name type address geoPoint')
+    .populate('vehicleCategoryId', 'name code');
+  if (!rule) throw errors.notFound('Pricing rule');
+  res.json({ success: true, data: rule });
+});
+
+router.post('/pricing-rules', async (req, res) => {
+  const { PricingRule } = await import('@/models/PricingRule');
+  const {
+    name,
+    ruleType = 'FIXED',
+    priority = 50,
+    vehicleCategoryId,
+    originLocationId,
+    destinationLocationId,
+    isBidirectional = true,
+    tripType,
+    fixedPrice,
+    baseFare,
+    minimumKm,
+    ratePerKm,
+    includedKm,
+    extraKmRate,
+    description,
+    status = 'ACTIVE',
+  } = req.body;
+
+  if (!name?.trim()) throw errors.badRequest('Route or rule name is required');
+  if (ruleType === 'FIXED' || ruleType === 'LOCATION_TO_LOCATION') {
+    if (fixedPrice === undefined || fixedPrice === null || Number(fixedPrice) < 0) {
+      throw errors.badRequest('Fixed price amount is required for fixed fare rules');
+    }
+  }
+
+  const rule = await PricingRule.create({
+    name: name.trim(),
+    ruleType,
+    priority: Number(priority) || 50,
+    vehicleCategoryId: vehicleCategoryId || undefined,
+    originLocationId: originLocationId || undefined,
+    destinationLocationId: destinationLocationId || undefined,
+    isBidirectional: isBidirectional !== false,
+    tripType: tripType || undefined,
+    fixedPrice: fixedPrice !== undefined ? Number(fixedPrice) : undefined,
+    baseFare: baseFare !== undefined ? Number(baseFare) : undefined,
+    minimumKm: minimumKm !== undefined ? Number(minimumKm) : undefined,
+    ratePerKm: ratePerKm !== undefined ? Number(ratePerKm) : undefined,
+    includedKm: includedKm !== undefined ? Number(includedKm) : undefined,
+    extraKmRate: extraKmRate !== undefined ? Number(extraKmRate) : undefined,
+    description: description?.trim() || undefined,
+    status,
+    createdBy: (req as any).user?.userId,
+  });
+
+  const populated = await PricingRule.findById(rule._id)
+    .populate('originLocationId', 'name type address')
+    .populate('destinationLocationId', 'name type address')
+    .populate('vehicleCategoryId', 'name code');
+
+  res.status(201).json({ success: true, message: 'Pricing rule created successfully', data: populated });
+});
+
+router.put('/pricing-rules/:id', async (req, res) => {
+  const { PricingRule } = await import('@/models/PricingRule');
+  const rule = await PricingRule.findById(req.params.id);
+  if (!rule) throw errors.notFound('Pricing rule');
+
+  const {
+    name,
+    ruleType,
+    priority,
+    vehicleCategoryId,
+    originLocationId,
+    destinationLocationId,
+    isBidirectional,
+    tripType,
+    fixedPrice,
+    baseFare,
+    minimumKm,
+    ratePerKm,
+    includedKm,
+    extraKmRate,
+    description,
+    status,
+  } = req.body;
+
+  if (name !== undefined) rule.name = name.trim();
+  if (ruleType !== undefined) rule.ruleType = ruleType;
+  if (priority !== undefined) rule.priority = Number(priority);
+  rule.vehicleCategoryId = vehicleCategoryId || undefined;
+  rule.originLocationId = originLocationId || undefined;
+  rule.destinationLocationId = destinationLocationId || undefined;
+  if (isBidirectional !== undefined) rule.isBidirectional = Boolean(isBidirectional);
+  if (tripType !== undefined) rule.tripType = tripType || undefined;
+  if (fixedPrice !== undefined) rule.fixedPrice = fixedPrice !== '' ? Number(fixedPrice) : undefined;
+  if (baseFare !== undefined) rule.baseFare = baseFare !== '' ? Number(baseFare) : undefined;
+  if (minimumKm !== undefined) rule.minimumKm = minimumKm !== '' ? Number(minimumKm) : undefined;
+  if (ratePerKm !== undefined) rule.ratePerKm = ratePerKm !== '' ? Number(ratePerKm) : undefined;
+  if (includedKm !== undefined) rule.includedKm = includedKm !== '' ? Number(includedKm) : undefined;
+  if (extraKmRate !== undefined) rule.extraKmRate = extraKmRate !== '' ? Number(extraKmRate) : undefined;
+  if (description !== undefined) rule.description = description?.trim() || undefined;
+  if (status !== undefined) rule.status = status;
+
+  await rule.save();
+
+  const populated = await PricingRule.findById(rule._id)
+    .populate('originLocationId', 'name type address')
+    .populate('destinationLocationId', 'name type address')
+    .populate('vehicleCategoryId', 'name code');
+
+  res.json({ success: true, message: 'Pricing rule updated successfully', data: populated });
+});
+
+router.patch('/pricing-rules/:id/status', async (req, res) => {
+  const { PricingRule } = await import('@/models/PricingRule');
+  const { status } = req.body;
+  const rule = await PricingRule.findByIdAndUpdate(
+    req.params.id,
+    { status },
+    { new: true }
+  )
+    .populate('originLocationId', 'name type address')
+    .populate('destinationLocationId', 'name type address')
+    .populate('vehicleCategoryId', 'name code');
+
+  if (!rule) throw errors.notFound('Pricing rule');
+  res.json({ success: true, message: `Status updated to ${status}`, data: rule });
+});
+
+router.delete('/pricing-rules/:id', async (req, res) => {
+  const { PricingRule } = await import('@/models/PricingRule');
+  const rule = await PricingRule.findByIdAndDelete(req.params.id);
+  if (!rule) throw errors.notFound('Pricing rule');
+  res.json({ success: true, message: 'Pricing rule deleted successfully' });
+});
+
+router.post('/pricing-rules/seed-defaults', async (req, res) => {
+  const { PricingRule } = await import('@/models/PricingRule');
+  const { Location } = await import('@/models/Location');
+  const { VehicleCategory } = await import('@/models/VehicleCategory');
+
+  // Find or create default locations
+  let kollurTemple = await Location.findOne({ $or: [{ code: 'KOLLUR_SRI_MOOKAMBIK' }, { name: { $regex: /kollur.*mookambika/i } }] });
+  if (!kollurTemple) {
+    kollurTemple = await Location.create({
+      name: 'Kollur Sri Mookambika Temple',
+      code: 'LOC-KOLLUR-TEMPLE',
+      type: 'TAXI_STAND',
+      address: { line1: 'Temple Car Street', city: 'Kollur', state: 'Karnataka', pincode: '576220', country: 'India' },
+      geoPoint: { type: 'Point', coordinates: [74.8135, 13.8647] },
+      status: 'ACTIVE',
+      bookingEnabled: true,
+      createdBy: (req as any).user?.userId,
+    });
+  }
+
+  let byndoorStation = await Location.findOne({ $or: [{ code: 'MOOKAMBIKA_ROAD' }, { code: 'LOC-BYNDOOR-STN' }, { name: { $regex: /byndoor/i } }] });
+  if (!byndoorStation) {
+    byndoorStation = await Location.create({
+      name: 'Mookambika Road Byndoor (Railway Station)',
+      code: 'LOC-BYNDOOR-STN',
+      type: 'TAXI_STAND',
+      address: { line1: 'Railway Station Road', city: 'Byndoor', state: 'Karnataka', pincode: '576214', country: 'India' },
+      geoPoint: { type: 'Point', coordinates: [74.6369, 13.8741] },
+      status: 'ACTIVE',
+      bookingEnabled: true,
+      createdBy: (req as any).user?.userId,
+    });
+  }
+
+  let udupiKrishna = await Location.findOne({ name: { $regex: /udupi/i } });
+  if (!udupiKrishna) {
+    udupiKrishna = await Location.create({
+      name: 'Udupi Sri Krishna Matha',
+      code: 'LOC-UDUPI-MATHA',
+      type: 'TEMPLE',
+      address: { line1: 'Car Street', city: 'Udupi', state: 'Karnataka', pincode: '576101', country: 'India' },
+      geoPoint: { type: 'Point', coordinates: [74.7525, 13.3409] },
+      status: 'ACTIVE',
+      bookingEnabled: true,
+      createdBy: (req as any).user?.userId,
+    });
+  }
+
+  let mangaloreAirport = await Location.findOne({ name: { $regex: /mangalore.*airport/i } });
+  if (!mangaloreAirport) {
+    mangaloreAirport = await Location.create({
+      name: 'Mangalore International Airport (IXE)',
+      code: 'LOC-IXE-AIRPORT',
+      type: 'AIRPORT',
+      address: { line1: 'Kenjar', city: 'Mangalore', state: 'Karnataka', pincode: '574142', country: 'India' },
+      geoPoint: { type: 'Point', coordinates: [74.8900, 12.9613] },
+      status: 'ACTIVE',
+      bookingEnabled: true,
+      createdBy: (req as any).user?.userId,
+    });
+  }
+
+  let murudeshwar = await Location.findOne({ name: { $regex: /murudeshwar/i } });
+  if (!murudeshwar) {
+    murudeshwar = await Location.create({
+      name: 'Murudeshwar Temple & Beach',
+      code: 'LOC-MURUDESHWAR',
+      type: 'TOURIST_LOCATION',
+      address: { line1: 'Bhatkal Taluk', city: 'Murudeshwar', state: 'Karnataka', pincode: '581350', country: 'India' },
+      geoPoint: { type: 'Point', coordinates: [74.4849, 14.0941] },
+      status: 'ACTIVE',
+      bookingEnabled: true,
+      createdBy: (req as any).user?.userId,
+    });
+  }
+
+  // Get active vehicle categories
+  const categories = await VehicleCategory.find({ status: 'ACTIVE' });
+  const sedanCat = categories.find(c => c.code === 'SEDAN') || categories[0];
+
+  const defaultRoutes = [
+    {
+      name: 'Kollur Temple ⇄ Byndoor Station',
+      originLocationId: kollurTemple._id,
+      destinationLocationId: byndoorStation._id,
+      vehicleCategoryId: sedanCat?._id,
+      fixedPrice: 800,
+      includedKm: 32,
+      extraKmRate: 18,
+      isBidirectional: true,
+      ruleType: 'FIXED',
+      priority: 10,
+      description: 'Fixed taxi fare between Kollur Temple and Byndoor Railway Station',
+    },
+    {
+      name: 'Kollur Temple ⇄ Udupi Krishna Matha',
+      originLocationId: kollurTemple._id,
+      destinationLocationId: udupiKrishna._id,
+      vehicleCategoryId: sedanCat?._id,
+      fixedPrice: 2200,
+      includedKm: 80,
+      extraKmRate: 18,
+      isBidirectional: true,
+      ruleType: 'FIXED',
+      priority: 20,
+      description: 'Direct pilgrimage route between Kollur and Udupi',
+    },
+    {
+      name: 'Kollur Temple ⇄ Mangalore Airport (IXE)',
+      originLocationId: kollurTemple._id,
+      destinationLocationId: mangaloreAirport._id,
+      vehicleCategoryId: sedanCat?._id,
+      fixedPrice: 3800,
+      includedKm: 135,
+      extraKmRate: 20,
+      isBidirectional: true,
+      ruleType: 'FIXED',
+      priority: 15,
+      description: 'Airport transfer fixed package rate',
+    },
+    {
+      name: 'Kollur Temple ⇄ Murudeshwar Temple',
+      originLocationId: kollurTemple._id,
+      destinationLocationId: murudeshwar._id,
+      vehicleCategoryId: sedanCat?._id,
+      fixedPrice: 1900,
+      includedKm: 65,
+      extraKmRate: 18,
+      isBidirectional: true,
+      ruleType: 'FIXED',
+      priority: 25,
+      description: 'Coastal temple tour between Kollur and Murudeshwar',
+    },
+  ];
+
+  let createdCount = 0;
+  for (const r of defaultRoutes) {
+    const existing = await PricingRule.findOne({
+      originLocationId: r.originLocationId,
+      destinationLocationId: r.destinationLocationId,
+    });
+    if (!existing) {
+      await PricingRule.create({
+        ...r,
+        status: 'ACTIVE',
+        createdBy: (req as any).user?.userId,
+      });
+      createdCount++;
+    }
+  }
+
+  const allRules = await PricingRule.find()
+    .populate('originLocationId', 'name type address')
+    .populate('destinationLocationId', 'name type address')
+    .populate('vehicleCategoryId', 'name code');
+
+  res.json({
+    success: true,
+    message: `Default fixed routes seeded successfully (${createdCount} added)`,
+    data: allRules,
+  });
 });
 
 export default router;

@@ -37,6 +37,7 @@ import type { ColumnsType, TablePaginationConfig } from 'antd/es/table';
 import apiClient from '@/lib/apiClient';
 import { Drawer } from '@/components/Drawer';
 import { ETicketModal, BookingTicketData } from '@/components/ETicketModal';
+import { CreateBookingModal } from '@/components/CreateBookingModal';
 
 const { Title, Text } = Typography;
 
@@ -91,6 +92,7 @@ export function BookingsPage() {
   // Selected for Details Drawer & E-Ticket Modal
   const [drawerBooking, setDrawerBooking] = useState<BookingTicketData | null>(null);
   const [eTicketBooking, setETicketBooking] = useState<BookingTicketData | null>(null);
+  const [createModalOpen, setCreateModalOpen] = useState(false);
 
   // 1. Fetch Categories for filter
   const { data: categories = [] } = useQuery<VehicleCategory[]>({
@@ -378,6 +380,16 @@ export function BookingsPage() {
         </div>
 
         <div className="flex items-center gap-3">
+          <Button
+            type="primary"
+            icon={<CarOutlined />}
+            size="middle"
+            onClick={() => setCreateModalOpen(true)}
+            style={{ background: '#10b981', borderColor: '#059669', fontWeight: 600 }}
+          >
+            Create Trip Booking
+          </Button>
+
           <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-xl border border-slate-200 text-xs text-slate-600 shadow-sm">
             <span
               className={`w-2 h-2 rounded-full ${
@@ -824,6 +836,17 @@ export function BookingsPage() {
         open={Boolean(eTicketBooking)}
         onClose={() => setETicketBooking(null)}
         booking={eTicketBooking}
+      />
+
+      {/* Admin Trip Booking & Dispatch Modal */}
+      <CreateBookingModal
+        open={createModalOpen}
+        onClose={() => setCreateModalOpen(false)}
+        onSuccess={newBooking => {
+          refetch();
+          qc.invalidateQueries({ queryKey: ['admin-bookings-stats'] });
+          setETicketBooking(newBooking);
+        }}
       />
     </div>
   );

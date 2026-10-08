@@ -25,7 +25,7 @@ import {
 } from '@gomookambika/types';
 import type { IBooking } from '@/models/Booking';
 import type { ITrip } from '@/models/Trip';
-import { getIO } from '@/sockets';
+import { getIO, tryGetIO } from '@/sockets';
 import { generateBookingNumber, generateTripNumber } from '@/utils/idGenerator';
 
 export interface CreateBookingInput {
@@ -50,13 +50,39 @@ export interface CreateBookingInput {
   vehicleCategoryId: string;
   paymentOption: string;
   notes?: string;
+  originTaxiStandId?: string;
+  destinationTaxiStandId?: string;
 }
 
 export class BookingService {
   // ─── CREATE BOOKING ──────────────────────────────────────────
 
   async createBooking(input: CreateBookingInput): Promise<IBooking> {
-    const { customerId, tripType, pickupLocation, dropLocation, vehicleCategoryId, paymentOption, scheduledAt, passengers, notes } = input;
+    const {
+      customerId,
+      tripType,
+      pickupLocation,
+      dropLocation,
+      vehicleCategoryId,
+      paymentOption,
+      scheduledAt,
+      passengers,
+      notes,
+    } = input;
+
+    // Resolve originTaxiStandId if not directly provided
+    let originTaxiStandId = input.originTaxiStandId;
+    if (!originTaxiStandId && pickupLocation.locationId) {
+      try {
+        const { TaxiStand } = await import('@/models/TaxiStand');
+        const stand = await TaxiStand.findOne({ locationId: pickupLocation.locationId, status: 'ACTIVE' });
+        if (stand) {
+          originTaxiStandId = stand._id.toString();
+        }
+      } catch (e) {
+        logger.warn('Failed to resolve originTaxiStandId from locationId', e);
+      }
+    }
 
     // Calculate route distance
     let distanceKm = 0;
@@ -93,6 +119,8 @@ export class BookingService {
       scheduledAt,
       passengers,
       vehicleCategoryId,
+      originTaxiStandId: originTaxiStandId ? new mongoose.Types.ObjectId(originTaxiStandId) : undefined,
+      destinationTaxiStandId: input.destinationTaxiStandId ? new mongoose.Types.ObjectId(input.destinationTaxiStandId) : undefined,
       fareSnapshot: {
         ...fareBreakdown,
         ruleName: appliedRuleName,
@@ -126,18 +154,33 @@ export class BookingService {
     });
 
     // Get IO instance for real-time events
-    const io = getIO();
-    io.to(`customer:${booking.customerId}`).emit(SocketEvent.BOOKING_STATUS_CHANGED, {
-      bookingId,
-      status: BookingStatus.SEARCHING_DRIVER,
-    });
+    const io = tryGetIO();
+    if (io) {
+      io.to(`customer:${booking.customerId}`).emit(SocketEvent.BOOKING_STATUS_CHANGED, {
+        bookingId,
+        status: BookingStatus.SEARCHING_DRIVER,
+      });
+      io.to('admin:operations').emit('booking:status:changed', {
+        bookingId,
+        status: BookingStatus.SEARCHING_DRIVER,
+      });
+    }
 
     // Find eligible drivers in queue
-    const eligibleEntries = await queueService.getEligibleDrivers(
+    let eligibleEntries = await queueService.getEligibleDrivers(
       booking.originTaxiStandId?.toString() ?? '',
       booking.vehicleCategoryId.toString(),
       QueuePolicy.FIFO
     );
+
+    // If no driver found at specific origin stand, search across all active stands
+    if (eligibleEntries.length === 0 && booking.originTaxiStandId) {
+      eligibleEntries = await queueService.getEligibleDrivers(
+        '',
+        booking.vehicleCategoryId.toString(),
+        QueuePolicy.FIFO
+      );
+    }
 
     if (eligibleEntries.length === 0) {
       logger.warn(`No drivers in queue for booking ${bookingId}`);
@@ -152,12 +195,12 @@ export class BookingService {
     driverId: string,
     allEligible: Array<{ driverId: { toString: () => string }; _id: { toString: () => string } }>
   ): Promise<void> {
-    const io = getIO();
+    const io = tryGetIO();
     const redis = getRedis();
 
     // Mark queue entry as OFFERED
     await QueueEntry.findOneAndUpdate(
-      { driverId, taxiStandId: booking.originTaxiStandId, status: QueueEntryStatus.WAITING },
+      { driverId, status: QueueEntryStatus.WAITING },
       { status: QueueEntryStatus.OFFERED, tripOfferedAt: new Date() }
     );
 
@@ -184,12 +227,30 @@ export class BookingService {
       timeoutSeconds: config.DRIVER_TRIP_ACCEPT_TIMEOUT_SECONDS,
     };
 
-    // Send offer to driver
-    io.to(`driver:${driverId}`).emit(SocketEvent.TRIP_OFFER_SENT, payload);
+    // Send offer to driver via socket rooms
+    if (io) {
+      io.to(`driver:${driverId}`).emit(SocketEvent.TRIP_OFFER_SENT, payload);
+      io.to(`driver:${driverId}`).emit('trip:offer:sent', payload);
+
+      // Also notify operations room
+      io.to('admin:operations').emit('trip:offer:dispatched', {
+        bookingId: booking.id,
+        bookingNumber: booking.bookingNumber,
+        driverId,
+        estimatedFare: booking.fareSnapshot?.total,
+      });
+    }
 
     // Set acceptance timeout
     setTimeout(async () => {
-      const stillPending = redis ? await redis.get(offerKey).catch(() => null) : null;
+      let stillPending = false;
+      if (redis) {
+        const pendingBookingId = await redis.get(offerKey).catch(() => null);
+        stillPending = Boolean(pendingBookingId);
+      } else {
+        const offeredEntry = await QueueEntry.findOne({ driverId, status: QueueEntryStatus.OFFERED });
+        stillPending = Boolean(offeredEntry);
+      }
       if (stillPending) {
         // Driver didn't respond — timeout
         await this.handleDriverTimeout(booking, driverId, allEligible);
@@ -233,64 +294,110 @@ export class BookingService {
     const startOTPHash = await argon2.hash(startOTP);
     const tripNumber = await generateTripNumber();
 
-    const session = await mongoose.startSession();
-    let trip: ITrip;
-
+    let trip!: ITrip;
     try {
-      await session.withTransaction(async () => {
-        // Create trip
-        const [t] = await Trip.create(
-          [
+      const session = await mongoose.startSession();
+      try {
+        await session.withTransaction(async () => {
+          // Create trip
+          const [t] = await Trip.create(
+            [
+              {
+                tripNumber,
+                bookingId: booking._id,
+                customerId: booking.customerId,
+                driverId: driver._id,
+                vehicleId: vehicle._id,
+                status: TripStatus.DRIVER_ACCEPTED,
+                pickupLocation: booking.pickupLocation,
+                dropLocation: booking.dropLocation!,
+                startOTPHash,
+                startOTPExpiresAt: new Date(Date.now() + 4 * 60 * 60 * 1000), // 4 hours
+                startOTPVerified: false,
+              },
+            ],
+            { session }
+          );
+          trip = t;
+
+          // Update booking
+          await Booking.findByIdAndUpdate(
+            bookingId,
             {
-              tripNumber,
-              bookingId: booking._id,
-              customerId: booking.customerId,
-              driverId: driver._id,
-              vehicleId: vehicle._id,
-              status: TripStatus.DRIVER_ACCEPTED,
-              pickupLocation: booking.pickupLocation,
-              dropLocation: booking.dropLocation!,
-              startOTPHash,
-              startOTPExpiresAt: new Date(Date.now() + 4 * 60 * 60 * 1000), // 4 hours
-              startOTPVerified: false,
+              status: BookingStatus.DRIVER_ACCEPTED,
+              assignedDriverId: driver._id,
+              assignedVehicleId: vehicle._id,
+              driverAssignedAt: new Date(),
             },
-          ],
-          { session }
-        );
+            { session }
+          );
+
+          // Update queue entry
+          await QueueEntry.findOneAndUpdate(
+            { driverId: driver._id, status: QueueEntryStatus.OFFERED },
+            {
+              status: QueueEntryStatus.ASSIGNED,
+              tripId: trip._id,
+              tripAcceptedAt: new Date(),
+            },
+            { session }
+          );
+
+          // Update driver status
+          await Driver.findByIdAndUpdate(
+            driver._id,
+            { status: DriverStatus.TRIP_ACCEPTED, activeTripId: trip._id },
+            { session }
+          );
+        });
+      } finally {
+        await session.endSession();
+      }
+    } catch (err: any) {
+      if (
+        err?.message?.includes('replica set member') ||
+        err?.message?.includes('Transaction numbers are only allowed')
+      ) {
+        const [t] = await Trip.create([
+          {
+            tripNumber,
+            bookingId: booking._id,
+            customerId: booking.customerId,
+            driverId: driver._id,
+            vehicleId: vehicle._id,
+            status: TripStatus.DRIVER_ACCEPTED,
+            pickupLocation: booking.pickupLocation,
+            dropLocation: booking.dropLocation!,
+            startOTPHash,
+            startOTPExpiresAt: new Date(Date.now() + 4 * 60 * 60 * 1000),
+            startOTPVerified: false,
+          },
+        ]);
         trip = t;
 
-        // Update booking
-        await Booking.findByIdAndUpdate(
-          bookingId,
-          {
-            status: BookingStatus.DRIVER_ACCEPTED,
-            assignedDriverId: driver._id,
-            assignedVehicleId: vehicle._id,
-            driverAssignedAt: new Date(),
-          },
-          { session }
-        );
+        await Booking.findByIdAndUpdate(bookingId, {
+          status: BookingStatus.DRIVER_ACCEPTED,
+          assignedDriverId: driver._id,
+          assignedVehicleId: vehicle._id,
+          driverAssignedAt: new Date(),
+        });
 
-        // Update queue entry
         await QueueEntry.findOneAndUpdate(
           { driverId: driver._id, status: QueueEntryStatus.OFFERED },
           {
             status: QueueEntryStatus.ASSIGNED,
             tripId: trip._id,
             tripAcceptedAt: new Date(),
-          },
-          { session }
+          }
         );
 
-        // Update driver status
-        await Driver.findByIdAndUpdate(
-          driver._id,
-          { status: DriverStatus.TRIP_ACCEPTED, activeTripId: trip._id },
-          { session }
-        );
-      });
-    } finally {
-      await session.endSession();
+        await Driver.findByIdAndUpdate(driver._id, {
+          status: DriverStatus.TRIP_ACCEPTED,
+          activeTripId: trip._id,
+        });
+      } else {
+        throw err;
+      }
     }
 
     // Store trip start OTP in Redis (best-effort)
@@ -335,6 +442,9 @@ export class BookingService {
       },
       { new: true }
     );
+
+    // Reset driver status back to IN_QUEUE
+    await Driver.findByIdAndUpdate(driverId, { status: DriverStatus.IN_QUEUE });
 
     // Apply decline policy
     await this.applyDeclinePolicy(driverId, queueEntry?.declineCount ?? 1);

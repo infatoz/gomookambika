@@ -20,6 +20,15 @@ router.get('/', optionalAuth, async (req: Request, res: Response) => {
   res.json({ success: true, data: locations });
 });
 
+// Active taxi stands list (for drivers and stand check-in)
+router.get('/stands', async (_req: Request, res: Response) => {
+  const { TaxiStand } = await import('@/models/TaxiStand');
+  const stands = await TaxiStand.find({ status: Status.ACTIVE })
+    .select('_id name qrToken locationId status queueRadius')
+    .sort({ name: 1 });
+  res.json({ success: true, data: stands });
+});
+
 router.get('/:id', async (req: Request, res: Response) => {
   const location = await Location.findOne({ _id: req.params.id, status: Status.ACTIVE });
   if (!location) { res.status(404).json({ success: false, message: 'Location not found' }); return; }

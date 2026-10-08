@@ -23,16 +23,19 @@ export interface FareEstimateResult {
   fareBreakdown: FareBreakdown;
   appliedRuleName: string;
   appliedRuleType: PriceRuleType;
+  isFixedFare: boolean;
+  ratePerKm?: number;
 }
 
 export class FareService {
   /**
    * Main fare calculation entry point.
    * Priority:
-   *  1. Specific origin + destination + vehicle category  (LOCATION_TO_LOCATION)
-   *  2. Specific origin + destination                     (LOCATION_TO_LOCATION, any vehicle)
-   *  3. Vehicle-specific distance pricing                 (PER_KM / SLAB)
-   *  4. Default vehicle category pricing from category doc
+   *  1. Specific origin + destination + vehicle category (Fixed Route / Location-to-Location)
+   *  2. Specific origin + destination (any vehicle category)
+   *  3. Specific location fixed price (origin or destination)
+   *  4. Vehicle-specific distance pricing (PER_KM / SLAB)
+   *  5. Kilometer-based dynamic pricing from Vehicle Category (distance * ratePerKm + baseFare)
    */
   async calculateFare(input: FareInput): Promise<FareEstimateResult> {
     const { distanceKm, vehicleCategoryId, tripType, scheduledAt, pickupLocationId, dropLocationId } = input;
@@ -52,6 +55,7 @@ export class FareService {
     let waitingChargeRate = 0;
     let nightMultiplier = 1.0;
     let configuredDriverAllowance = 0;
+    let effectiveRatePerKm: number | undefined = undefined;
 
     const category = await VehicleCategory.findById(vehicleCategoryId);
 
@@ -61,12 +65,14 @@ export class FareService {
       distanceFare = result.distanceFare;
       appliedRuleType = rule.ruleType;
       appliedRuleName = rule.name;
+      effectiveRatePerKm = rule.ratePerKm ?? rule.extraKmRate;
       if (category) {
         waitingChargeRate = category.waitingChargePerMin ?? 0;
         nightMultiplier = category.nightChargeMultiplier ?? 1.0;
       }
     } else {
-      // Fallback: use vehicle category default rates with multi-tier trip support
+      // Fallback: use vehicle category default rates with multi-tier trip support:
+      // FARE IS CALCULATED BASED ON KILOMETERS!
       if (!category) throw errors.notFound('Vehicle Category');
 
       waitingChargeRate = category.waitingChargePerMin ?? 0;
@@ -78,12 +84,13 @@ export class FareService {
         const minKm = rt.minimumKm ?? category.minimumKm ?? 0;
         const effectiveKm = Math.max(distanceKm, minKm);
         const ratePerKm = rt.ratePerKm ?? category.ratePerKm ?? 0;
-        distanceFare = effectiveKm * ratePerKm;
+        distanceFare = Math.round(effectiveKm * ratePerKm * 100) / 100;
+        effectiveRatePerKm = ratePerKm;
         waitingChargeRate = rt.waitingChargePerMin ?? waitingChargeRate;
         nightMultiplier = rt.nightChargeMultiplier ?? nightMultiplier;
         configuredDriverAllowance = rt.driverAllowance ?? 0;
         appliedRuleType = PriceRuleType.PER_KM;
-        appliedRuleName = `${category.name} Round Trip rate`;
+        appliedRuleName = `${category.name} Round Trip (${Math.round(distanceKm)} km @ ₹${ratePerKm}/km)`;
       } else if ((tripType === TripType.LOCAL || tripType === TripType.HOURLY_RENTAL) && category.fares?.rental) {
         const rent = category.fares.rental;
         baseFare = rent.baseFare ?? 0;
@@ -98,28 +105,32 @@ export class FareService {
         const extraHourRate = rent.extraHourRate ?? category.extraHourRate ?? 0;
         const extraHoursCharge = extraHours * extraHourRate;
 
-        distanceFare = extraKmCharge + extraHoursCharge;
+        distanceFare = Math.round((extraKmCharge + extraHoursCharge) * 100) / 100;
+        effectiveRatePerKm = extraKmRate;
         waitingChargeRate = rent.waitingChargePerMin ?? waitingChargeRate;
         nightMultiplier = rent.nightChargeMultiplier ?? nightMultiplier;
         appliedRuleType = PriceRuleType.FIXED;
-        appliedRuleName = `${category.name} Local Rental (${baseHours}h/${baseKm}km)`;
+        appliedRuleName = `${category.name} Rental (${baseHours}h/${baseKm}km)`;
       } else if (category.fares?.oneWay) {
         const ow = category.fares.oneWay;
         baseFare = ow.baseFare ?? 0;
         const minKm = ow.minimumKm ?? category.minimumKm ?? 0;
         const effectiveKm = Math.max(distanceKm, minKm);
         const ratePerKm = ow.ratePerKm ?? category.ratePerKm ?? 0;
-        distanceFare = effectiveKm * ratePerKm;
+        distanceFare = Math.round(effectiveKm * ratePerKm * 100) / 100;
+        effectiveRatePerKm = ratePerKm;
         waitingChargeRate = ow.waitingChargePerMin ?? waitingChargeRate;
         nightMultiplier = ow.nightChargeMultiplier ?? nightMultiplier;
         appliedRuleType = PriceRuleType.PER_KM;
-        appliedRuleName = `${category.name} One Way rate`;
+        appliedRuleName = `${category.name} One Way (${Math.round(distanceKm)} km @ ₹${ratePerKm}/km)`;
       } else {
         baseFare = category.baseFare ?? 0;
         const effectiveKm = Math.max(distanceKm, category.minimumKm ?? 0);
-        distanceFare = effectiveKm * (category.ratePerKm ?? 0);
+        const ratePerKm = category.ratePerKm ?? 0;
+        distanceFare = Math.round(effectiveKm * ratePerKm * 100) / 100;
+        effectiveRatePerKm = ratePerKm;
         appliedRuleType = PriceRuleType.PER_KM;
-        appliedRuleName = `${category.name} default rate`;
+        appliedRuleName = `${category.name} (${Math.round(distanceKm)} km @ ₹${ratePerKm}/km)`;
       }
     }
 
@@ -160,6 +171,8 @@ export class FareService {
 
     const total = Math.round((subtotal + tax) * 100) / 100;
 
+    const isFixedFare = appliedRuleType === PriceRuleType.FIXED || appliedRuleType === PriceRuleType.LOCATION_TO_LOCATION;
+
     const fareBreakdown: FareBreakdown = {
       distanceKm: Math.round(distanceKm * 100) / 100,
       baseFare: Math.round(baseFare * 100) / 100,
@@ -174,6 +187,9 @@ export class FareService {
       tax: Math.round(tax * 100) / 100,
       total,
       currency: 'INR',
+      ruleId: rule?._id ? rule._id.toString() : undefined,
+      ruleName: appliedRuleName,
+      ruleType: appliedRuleType,
       calculatedAt: new Date(),
     };
 
@@ -181,6 +197,8 @@ export class FareService {
       fareBreakdown,
       appliedRuleName,
       appliedRuleType,
+      isFixedFare,
+      ratePerKm: effectiveRatePerKm,
     };
   }
 
@@ -212,28 +230,81 @@ export class FareService {
       ],
     };
 
-    // Priority 1: Specific origin + destination + vehicle
+    // Priority 1: Specific origin + destination + vehicle category (Direct or Bidirectional)
     if (pickupLocationId && dropLocationId) {
-      const rule = await PricingRule.findOne({
+      // 1a. Direct route for this vehicle category
+      let rule = await PricingRule.findOne({
         ...baseQuery,
         originLocationId: pickupLocationId,
         destinationLocationId: dropLocationId,
         vehicleCategoryId,
         ruleType: { $in: [PriceRuleType.FIXED, PriceRuleType.LOCATION_TO_LOCATION] },
       }).sort({ priority: 1 });
-
       if (rule) return rule;
 
-      // Priority 2: Specific origin + destination (any vehicle)
-      const rule2 = await PricingRule.findOne({
+      // 1b. Reverse route if bidirectional for this vehicle category
+      rule = await PricingRule.findOne({
+        ...baseQuery,
+        originLocationId: dropLocationId,
+        destinationLocationId: pickupLocationId,
+        vehicleCategoryId,
+        isBidirectional: { $ne: false },
+        ruleType: { $in: [PriceRuleType.FIXED, PriceRuleType.LOCATION_TO_LOCATION] },
+      }).sort({ priority: 1 });
+      if (rule) return rule;
+
+      // 1c. Direct route for any vehicle category
+      rule = await PricingRule.findOne({
         ...baseQuery,
         originLocationId: pickupLocationId,
         destinationLocationId: dropLocationId,
-        vehicleCategoryId: { $exists: false },
+        $or: [{ vehicleCategoryId: { $exists: false } }, { vehicleCategoryId: null }],
         ruleType: { $in: [PriceRuleType.FIXED, PriceRuleType.LOCATION_TO_LOCATION] },
       }).sort({ priority: 1 });
+      if (rule) return rule;
 
-      if (rule2) return rule2;
+      // 1d. Reverse route if bidirectional for any vehicle category
+      rule = await PricingRule.findOne({
+        ...baseQuery,
+        originLocationId: dropLocationId,
+        destinationLocationId: pickupLocationId,
+        $or: [{ vehicleCategoryId: { $exists: false } }, { vehicleCategoryId: null }],
+        isBidirectional: { $ne: false },
+        ruleType: { $in: [PriceRuleType.FIXED, PriceRuleType.LOCATION_TO_LOCATION] },
+      }).sort({ priority: 1 });
+      if (rule) return rule;
+    }
+
+    // Priority 2: Specific Location Fixed Fare (e.g. Airport flat rate, specific pickup/drop point)
+    if (pickupLocationId || dropLocationId) {
+      const locConditions: any[] = [];
+      if (pickupLocationId) {
+        locConditions.push({ originLocationId: pickupLocationId, destinationLocationId: null });
+        locConditions.push({ originLocationId: pickupLocationId, destinationLocationId: { $exists: false } });
+      }
+      if (dropLocationId) {
+        locConditions.push({ destinationLocationId: dropLocationId, originLocationId: null });
+        locConditions.push({ destinationLocationId: dropLocationId, originLocationId: { $exists: false } });
+      }
+
+      if (locConditions.length > 0) {
+        const locRule = await PricingRule.findOne({
+          ...baseQuery,
+          $or: locConditions,
+          $and: [
+            {
+              $or: [
+                { vehicleCategoryId },
+                { vehicleCategoryId: { $exists: false } },
+                { vehicleCategoryId: null },
+              ],
+            },
+          ],
+          ruleType: { $in: [PriceRuleType.FIXED, PriceRuleType.LOCATION_TO_LOCATION] },
+        }).sort({ priority: 1 });
+
+        if (locRule) return locRule;
+      }
     }
 
     // Priority 3: Vehicle-specific distance pricing
@@ -257,13 +328,22 @@ export class FareService {
   ): { baseFare: number; distanceFare: number } {
     switch (rule.ruleType) {
       case PriceRuleType.FIXED:
-      case PriceRuleType.LOCATION_TO_LOCATION:
-        return { baseFare: rule.fixedPrice ?? 0, distanceFare: 0 };
+      case PriceRuleType.LOCATION_TO_LOCATION: {
+        const fixedFare = rule.fixedPrice ?? 0;
+        let distanceFare = 0;
+        // If includedKm is configured and actual distance exceeds it:
+        if (rule.includedKm && rule.includedKm > 0 && distanceKm > rule.includedKm) {
+          const extraKm = distanceKm - rule.includedKm;
+          const rate = rule.extraKmRate ?? rule.ratePerKm ?? 0;
+          distanceFare = Math.round(extraKm * rate * 100) / 100;
+        }
+        return { baseFare: fixedFare, distanceFare };
+      }
 
       case PriceRuleType.PER_KM: {
         const baseFare = rule.baseFare ?? 0;
         const effectiveKm = Math.max(distanceKm, rule.minimumKm ?? 0);
-        const distanceFare = effectiveKm * (rule.ratePerKm ?? 0);
+        const distanceFare = Math.round(effectiveKm * (rule.ratePerKm ?? 0) * 100) / 100;
         return { baseFare, distanceFare };
       }
 

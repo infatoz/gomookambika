@@ -4,7 +4,7 @@ import { Drawer } from 'antd';
 import {
   LayoutDashboard, Users, Car, MapPin,
   CalendarCheck, Settings, ChevronDown, LogOut, Bell,
-  Landmark, ChevronRight, Activity, Menu,
+  Landmark, ChevronRight, Activity, Menu, Route,
 } from 'lucide-react';
 
 import { useAuthStore } from '@/store/authStore';
@@ -39,7 +39,9 @@ const navEntries: NavEntry[] = [
   { label: 'Locations', icon: MapPin, children: [
     { label: 'All Locations', to: '/locations' },
     { label: 'Taxi Stands',   to: '/taxi-stands' },
+    { label: 'Fixed Route Fares', to: '/pricing-rules' },
   ]},
+  { label: 'Fixed Route Fares', icon: Route, to: '/pricing-rules' },
   { label: 'Bookings', icon: CalendarCheck, to: '/bookings' },
   { label: 'SYSTEM', type: 'section' },
   { label: 'Settings', icon: Settings, to: '/settings' },

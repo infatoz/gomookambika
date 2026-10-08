@@ -4,10 +4,18 @@ import { QueueEntry } from '@/models/QueueEntry';
 import { QueueEntryStatus } from '@gomookambika/types';
 
 export class QueueController {
+  private async getDriverId(userId: string): Promise<string> {
+    const { Driver } = await import('@/models/Driver');
+    const driver = await Driver.findOne({
+      $or: [{ userId }, { _id: userId }],
+    });
+    return driver ? driver._id.toString() : userId;
+  }
+
   // POST /api/v1/queues/join
   async joinQueue(req: Request, res: Response): Promise<void> {
     const { qrToken, latitude, longitude, accuracy } = req.body;
-    const driverId = req.user!.userId;
+    const driverId = await this.getDriverId(req.user!.userId);
 
     const result = await queueService.joinQueue({
       qrToken,
@@ -26,7 +34,7 @@ export class QueueController {
 
   // POST /api/v1/queues/leave
   async leaveQueue(req: Request, res: Response): Promise<void> {
-    const driverId = req.user!.userId;
+    const driverId = await this.getDriverId(req.user!.userId);
     await queueService.leaveQueue(driverId);
     res.json({ success: true, message: 'Left queue successfully' });
   }
@@ -34,7 +42,7 @@ export class QueueController {
   // POST /api/v1/queues/heartbeat
   async heartbeat(req: Request, res: Response): Promise<void> {
     const { queueEntryId, latitude, longitude } = req.body;
-    const driverId = req.user!.userId;
+    const driverId = await this.getDriverId(req.user!.userId);
 
     const result = await queueService.processHeartbeat({
       queueEntryId,
@@ -54,10 +62,10 @@ export class QueueController {
 
   // GET /api/v1/queues/my-status
   async getMyQueueStatus(req: Request, res: Response): Promise<void> {
-    const driverId = req.user!.userId;
+    const driverId = await this.getDriverId(req.user!.userId);
 
     const entry = await QueueEntry.findOne({
-      driverId,
+      $or: [{ driverId }, { driverId: req.user!.userId }],
       status: { $in: [QueueEntryStatus.WAITING, QueueEntryStatus.OFFERED] },
     })
       .populate('taxiStandId', 'name locationId')
@@ -79,6 +87,14 @@ export class QueueController {
       success: true,
       data: {
         ...entry.toJSON(),
+        inQueue: true,
+        entry: {
+          _id: entry._id.toString(),
+          taxiStandId: entry.taxiStandId,
+          position: entry.position,
+          enteredAt: (entry as any).joinedAt || (entry as any).createdAt || new Date().toISOString(),
+          joinedAt: (entry as any).joinedAt,
+        },
         driversAhead,
         estimatedWaitMinutes: driversAhead * 15, // Simple estimate: 15 min per driver
       },
