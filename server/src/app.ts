@@ -2,6 +2,7 @@ import 'express-async-errors';
 import express from 'express';
 import http from 'http';
 import path from 'path';
+import fs from 'fs';
 import cors from 'cors';
 import helmet from 'helmet';
 import compression from 'compression';
@@ -39,7 +40,7 @@ app.use(
 
 app.use(
   cors({
-    origin: config.FRONTEND_URLS,
+    origin: (_origin, callback) => callback(null, true),
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
@@ -84,6 +85,22 @@ setupRoutes(app);
 // ─── SWAGGER DOCS ────────────────────────────────────────────
 if (config.SWAGGER_ENABLED) {
   setupSwagger(app);
+}
+
+// ─── STATIC WEB APP FALLBACK (Customer PWA on port 5000) ───────
+const customerWebPath = process.env.CUSTOMER_WEB_PATH || '/var/www/customer';
+if (fs.existsSync(customerWebPath)) {
+  app.use(express.static(customerWebPath));
+  app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api') || req.path.startsWith('/socket.io') || req.path === '/health') {
+      return next();
+    }
+    const indexPath = path.join(customerWebPath, 'index.html');
+    if (fs.existsSync(indexPath)) {
+      return res.sendFile(indexPath);
+    }
+    next();
+  });
 }
 
 // ─── ERROR HANDLING ──────────────────────────────────────────

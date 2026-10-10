@@ -21,7 +21,7 @@ export function tryGetIO(): SocketServer | null {
 export function initializeSocket(server: http.Server): SocketServer {
   io = new SocketServer(server, {
     cors: {
-      origin: config.FRONTEND_URLS,
+      origin: (_origin, callback) => callback(null, true),
       credentials: true,
       methods: ['GET', 'POST'],
     },

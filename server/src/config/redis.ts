@@ -24,36 +24,32 @@ export async function connectRedis(): Promise<void> {
   try {
     const client = new Redis(config.REDIS_URL, {
       keyPrefix: config.REDIS_PREFIX,
-      retryStrategy: times => {
-        if (times >= 3) return null; // stop retrying — server continues without Redis
-        return Math.min(times * 200, 1000);
-      },
+      retryStrategy: () => null, // Do not spam retries if Redis is not running
       maxRetriesPerRequest: 1,
       enableOfflineQueue: false,
       lazyConnect: true,
+      connectTimeout: 2000,
     });
 
     client.on('connect', () => logger.info('✅ Redis connected'));
     client.on('ready', () => { redisAvailable = true; });
-    client.on('error', err => logger.warn(`Redis error: ${err.message}`));
-    client.on('close', () => { redisAvailable = false; logger.warn('Redis connection closed'); });
-    client.on('reconnecting', () => logger.warn('Redis reconnecting...'));
-    client.on('end', () => { redisAvailable = false; logger.warn('Redis connection ended'); });
+    client.on('error', () => { /* Handled in catch block */ });
+    client.on('close', () => { redisAvailable = false; });
+    client.on('end', () => { redisAvailable = false; });
 
-    // Try to connect with a short timeout
+    // Try to connect with a short 2-second timeout
     await Promise.race([
       client.connect(),
       new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('Redis connect timeout')), 3000)
+        setTimeout(() => reject(new Error('Redis connection timeout')), 2000)
       ),
     ]);
 
     redisClient = client;
     redisAvailable = true;
     logger.info('✅ Redis ready');
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err);
-    logger.warn(`⚠️  Redis unavailable (${msg}). Continuing without Redis — OTP will use in-memory fallback.`);
+  } catch {
+    logger.info('ℹ️  Redis not available — continuing without Redis (in-memory mode for OTP & queues).');
     redisClient = null;
     redisAvailable = false;
   }
