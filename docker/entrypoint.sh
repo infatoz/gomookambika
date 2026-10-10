@@ -7,7 +7,7 @@ echo "=================================================="
 
 # Ensure runtime, log, and uploads directories exist with full permissions
 mkdir -p /app/server/uploads /run /run/nginx /var/log/nginx /var/lib/nginx/tmp /var/www
-chmod -R 777 /app/server/uploads /run/nginx /var/log/nginx /var/lib/nginx 2>/dev/null || true
+chmod -R 777 /app/server/uploads /run/nginx /var/log/nginx /var/lib/nginx /var/www 2>/dev/null || true
 
 # Symlink Nginx access/error logs to stdout/stderr for Docker log viewer
 ln -sf /dev/stdout /var/log/nginx/access.log 2>/dev/null || true
@@ -40,19 +40,19 @@ shutdown() {
 trap shutdown SIGTERM SIGINT
 
 # Start Nginx in background
-echo "[3/3] Starting Nginx Subdomain Router on port 80..."
+echo "[3/3] Starting Nginx Subdomain Router on ports 80, 3000, 8080..."
 nginx
 
 # Check Nginx status
 sleep 1
 if pgrep nginx > /dev/null 2>&1; then
-    echo "✅ Nginx is running on port 80"
+    echo "✅ Nginx is running on ports 80, 3000, 8080"
 else
     echo "❌ WARNING: Nginx failed to start! Check /var/log/nginx/error.log"
     cat /var/log/nginx/error.log 2>/dev/null || true
 fi
 
-echo "All services running! Listening on port 80 (HTTP) and 5000 (Internal API)."
+echo "All services running! Listening on ports 80, 3000, 8080 (HTTP Web & Routing) and 5000 (Internal API)."
 
 # Wait for the Node.js process. If it crashes, the container stops and Dokpoly restarts it.
 wait "$NODE_PID"

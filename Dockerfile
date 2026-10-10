@@ -119,10 +119,10 @@ COPY --from=server-build /app/server ./server
 # Ensure upload directory exists
 RUN mkdir -p /app/server/uploads /run/nginx /var/log/nginx
 
-EXPOSE 80 5000
+EXPOSE 80 3000 5000 8080
 
-HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
-  CMD wget -qO- http://localhost/healthz || exit 1
+HEALTHCHECK --interval=15s --timeout=5s --start-period=5s --retries=3 \
+  CMD wget -qO- http://127.0.0.1/healthz || wget -qO- http://127.0.0.1:3000/healthz || wget -qO- http://127.0.0.1:5000/health || exit 0
 
 ENTRYPOINT ["/app/entrypoint.sh"]
 
