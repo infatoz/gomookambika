@@ -1,25 +1,32 @@
 # syntax=docker/dockerfile:1
-# Admin Portal PWA Dockerfile (admin.example.com) - Optimized for Dokpoly
+# Admin PWA Dockerfile (admin.example.com) - Optimized for Dokpoly
 # Build Context: . (Monorepo root)
 
 FROM node:20-alpine AS builder
 ENV PNPM_HOME="/pnpm"
 ENV PATH="$PNPM_HOME:$PATH"
-RUN corepack enable && corepack prepare pnpm@9.15.4 --activate
+RUN apk add --no-cache libc6-compat
+RUN npm install -g pnpm@9.15.4
 WORKDIR /app
 
 # 1. Install dependencies with caching
 COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
 COPY packages/types/package.json ./packages/types/
 COPY packages/validation/package.json ./packages/validation/
+COPY server/package.json ./server/
+COPY apps/customer-pwa/package.json ./apps/customer-pwa/
+COPY apps/driver-pwa/package.json ./apps/driver-pwa/
 COPY apps/admin-pwa/package.json ./apps/admin-pwa/
 
-RUN pnpm install --filter admin-pwa... --frozen-lockfile
+RUN pnpm install --frozen-lockfile
 
 # 2. Copy source and build
 COPY packages/ ./packages/
 COPY apps/admin-pwa/ ./apps/admin-pwa/
 COPY tsconfig.json* ./
+
+RUN pnpm --filter @gomookambika/types build
+RUN pnpm --filter @gomookambika/validation build
 
 ARG VITE_API_BASE_URL=""
 ARG VITE_SOCKET_URL=""

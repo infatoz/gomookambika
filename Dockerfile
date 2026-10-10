@@ -18,7 +18,7 @@ FROM node:20-alpine AS base
 ENV PNPM_HOME="/pnpm"
 ENV PATH="$PNPM_HOME:$PATH"
 RUN apk add --no-cache libc6-compat
-RUN corepack enable && corepack prepare pnpm@9.15.4 --activate
+RUN npm install -g pnpm@9.15.4
 WORKDIR /app
 
 # ------------------------------------------------------------------------------
@@ -34,19 +34,23 @@ COPY apps/customer-pwa/package.json ./apps/customer-pwa/
 COPY apps/driver-pwa/package.json ./apps/driver-pwa/
 COPY apps/admin-pwa/package.json ./apps/admin-pwa/
 
-# Install build tools if any native dependency requires compilation
+# Install build tools if any native dependency requires compilation (argon2, bcrypt)
 RUN apk add --no-cache --virtual .build-deps python3 make g++ \
   && pnpm install --frozen-lockfile \
   && apk del .build-deps
 
 # ------------------------------------------------------------------------------
-# 3. Builder Stage: Full source code & shared packages build
+# 3. Builder Stage: Full source code & monorepo build
 # ------------------------------------------------------------------------------
 FROM dependencies AS builder
 COPY packages/ ./packages/
 COPY server/ ./server/
 COPY apps/ ./apps/
 COPY tsconfig.json* ./
+
+# Build shared packages first
+RUN pnpm --filter @gomookambika/types build
+RUN pnpm --filter @gomookambika/validation build
 
 # ------------------------------------------------------------------------------
 # 4. App-Specific Builds
@@ -76,9 +80,11 @@ ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
 ENV VITE_SOCKET_URL=$VITE_SOCKET_URL
 RUN pnpm --filter admin-pwa build
 
-# 4d. Server Backend Build (TypeScript -> dist)
+# 4d. Server Backend Build
 FROM builder AS server-build
 RUN pnpm --filter server build
+# Deploy pruned production package
+RUN pnpm --filter server --prod deploy /app/server-prod --legacy
 
 # ==============================================================================
 # 5. Production Images
@@ -127,35 +133,20 @@ FROM node:20-alpine AS server
 WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=5000
-ENV PNPM_HOME="/pnpm"
-ENV PATH="$PNPM_HOME:$PATH"
 
 RUN apk add --no-cache libc6-compat
-RUN corepack enable && corepack prepare pnpm@9.15.4 --activate
 
-# Copy workspace setup & shared packages needed by server
-COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
-COPY packages/types ./packages/types
-COPY packages/validation ./packages/validation
-COPY server/package.json ./server/
-
-# Install only production dependencies
-RUN apk add --no-cache --virtual .build-deps python3 make g++ \
-  && pnpm install --prod --frozen-lockfile \
-  && apk del .build-deps
-
-# Copy compiled server distribution files
-COPY --from=server-build /app/server/dist ./server/dist
+# Copy self-contained deployed production server from builder stage
+COPY --from=server-build /app/server-prod ./
 
 # Prepare uploads directory with proper permissions
-RUN mkdir -p ./server/uploads && chown -R node:node /app
+RUN mkdir -p ./uploads && chown -R node:node /app
 
 USER node
 EXPOSE 5000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
   CMD wget -qO- http://localhost:5000/health || exit 1
 
-WORKDIR /app/server
 CMD ["node", "dist/app.js"]
 
 # ------------------------------------------------------------------------------

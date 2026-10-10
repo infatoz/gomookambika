@@ -1,40 +1,40 @@
-﻿{
-    "name":  "go-mookambika",
-    "version":  "1.0.0",
-    "private":  true,
-    "description":  "Go Mookambika taxi association platform monorepo",
-    "scripts":  {
-                    "dev":  "concurrently --prefix-colors \"blue,green,yellow,magenta\" --names \"server,customer,driver,admin\" \"pnpm dev:server\" \"pnpm dev:customer\" \"pnpm dev:driver\" \"pnpm dev:admin\"",
-                    "dev:server":  "pnpm --filter server dev",
-                    "dev:customer":  "pnpm --filter customer-pwa dev",
-                    "dev:driver":  "pnpm --filter driver-pwa dev",
-                    "dev:admin":  "pnpm --filter admin-pwa dev",
-                    "build":  "pnpm --recursive build",
-                    "build:packages":  "pnpm --filter \u0027./packages/**\u0027 build",
-                    "test":  "pnpm --recursive test",
-                    "test:server":  "pnpm --filter server test",
-                    "lint":  "pnpm --recursive lint",
-                    "format":  "prettier --write \"**/*.{ts,tsx,js,jsx,json,md,css}\" --ignore-path .gitignore",
-                    "typecheck":  "pnpm --recursive typecheck",
-                    "clean":  "pnpm --recursive clean \u0026\u0026 rimraf node_modules"
-                },
-    "devDependencies":  {
-                            "concurrently":  "^9.1.2",
-                            "prettier":  "^3.4.2",
-                            "rimraf":  "^6.0.1",
-                            "typescript":  "^5.7.3"
-                        },
-    "engines":  {
-                    "node":  "\u003e=20.0.0",
-                    "pnpm":  "\u003e=8.0.0"
-                },
-    "pnpm":  {
-                 "onlyBuiltDependencies":  [
-                                               "@scarf/scarf",
-                                               "argon2",
-                                               "bcrypt",
-                                               "esbuild",
-                                               "msgpackr-extract"
-                                           ]
-             }
+{
+  "name": "go-mookambika",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Go Mookambika taxi association platform monorepo",
+  "scripts": {
+    "dev": "concurrently --prefix-colors \"blue,green,yellow,magenta\" --names \"server,customer,driver,admin\" \"pnpm dev:server\" \"pnpm dev:customer\" \"pnpm dev:driver\" \"pnpm dev:admin\"",
+    "dev:server": "pnpm --filter server dev",
+    "dev:customer": "pnpm --filter customer-pwa dev",
+    "dev:driver": "pnpm --filter driver-pwa dev",
+    "dev:admin": "pnpm --filter admin-pwa dev",
+    "build": "pnpm --recursive build",
+    "build:packages": "pnpm --filter './packages/**' build",
+    "test": "pnpm --recursive test",
+    "test:server": "pnpm --filter server test",
+    "lint": "pnpm --recursive lint",
+    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md,css}\" --ignore-path .gitignore",
+    "typecheck": "pnpm --recursive typecheck",
+    "clean": "pnpm --recursive clean && rimraf node_modules"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "prettier": "^3.4.2",
+    "rimraf": "^6.0.1",
+    "typescript": "^5.7.3"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=8.0.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@scarf/scarf",
+      "argon2",
+      "bcrypt",
+      "esbuild",
+      "msgpackr-extract"
+    ]
+  }
 }
