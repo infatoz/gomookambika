@@ -40,9 +40,18 @@ export async function connectMongoDB(): Promise<void> {
       isConnected = true;
     });
 
+    function maskMongoUri(uri: string): string {
+      return uri.replace(/\/\/(.*?:).*?@/, '//$1*****@');
+    }
+
+    logger.info(`Connecting to MongoDB: ${maskMongoUri(config.MONGODB_URI)}`);
     await mongoose.connect(config.MONGODB_URI, options);
-  } catch (error) {
-    logger.error('Failed to connect to MongoDB:', error);
+  } catch (error: any) {
+    function maskMongoUri(uri: string): string {
+      return uri.replace(/\/\/(.*?:).*?@/, '//$1*****@');
+    }
+    logger.error(`Failed to connect to MongoDB (${maskMongoUri(config.MONGODB_URI)}): ${error?.message || error}`);
+    logger.error('Tip: Please ensure MONGODB_URI is properly set in your Dokpoly Environment Variables.');
     throw error;
   }
 }
