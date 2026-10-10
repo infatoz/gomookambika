@@ -33,7 +33,6 @@ COPY tsconfig.json* ./
 RUN pnpm --filter @gomookambika/types build
 RUN pnpm --filter @gomookambika/validation build
 RUN pnpm --filter server build
-RUN pnpm --filter server --prod deploy /app/server-prod --legacy
 
 # 2. Production Runtime Stage
 FROM node:20-alpine
@@ -43,11 +42,13 @@ ENV PORT=5000
 
 RUN apk add --no-cache libc6-compat
 
-# Copy self-contained deployed production server
-COPY --from=builder /app/server-prod ./
+# Copy node_modules, shared packages, and built server
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/packages ./packages
+COPY --from=builder /app/server ./server
 
 # Prepare uploads directory with proper permissions
-RUN mkdir -p ./uploads && chown -R node:node /app
+RUN mkdir -p ./server/uploads && chown -R node:node /app
 
 USER node
 EXPOSE 5000
@@ -55,4 +56,5 @@ EXPOSE 5000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
   CMD wget -qO- http://localhost:5000/health || exit 1
 
+WORKDIR /app/server
 CMD ["node", "dist/app.js"]

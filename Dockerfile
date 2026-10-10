@@ -83,8 +83,6 @@ RUN pnpm --filter admin-pwa build
 # 4d. Server Backend Build
 FROM builder AS server-build
 RUN pnpm --filter server build
-# Deploy pruned production package
-RUN pnpm --filter server --prod deploy /app/server-prod --legacy
 
 # ==============================================================================
 # 5. Production Images
@@ -136,17 +134,20 @@ ENV PORT=5000
 
 RUN apk add --no-cache libc6-compat
 
-# Copy self-contained deployed production server from builder stage
-COPY --from=server-build /app/server-prod ./
+# Copy node_modules, shared packages, and built server from builder stage
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/packages ./packages
+COPY --from=server-build /app/server ./server
 
 # Prepare uploads directory with proper permissions
-RUN mkdir -p ./uploads && chown -R node:node /app
+RUN mkdir -p ./server/uploads && chown -R node:node /app
 
 USER node
 EXPOSE 5000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
   CMD wget -qO- http://localhost:5000/health || exit 1
 
+WORKDIR /app/server
 CMD ["node", "dist/app.js"]
 
 # ------------------------------------------------------------------------------
