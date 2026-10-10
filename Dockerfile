@@ -3,13 +3,14 @@
 # ==============================================================================
 # Go Mookambika Monorepo Production Dockerfile (Optimized for Dokpoly)
 # Targets:
-#   - customer  (Customer PWA, default domain: example.com)
-#   - driver    (Driver / Captain PWA, default domain: captain.example.com)
-#   - admin     (Admin Portal PWA, default domain: admin.example.com)
-#   - server    (Node.js Express + Socket.IO API Server, default domain: api.example.com)
+#   - all-in-one (Default: Unified container with Subdomain Routing on Port 80)
+#   - customer   (Customer PWA standalone, Port 80)
+#   - driver     (Driver PWA standalone, Port 80)
+#   - admin      (Admin PWA standalone, Port 80)
+#   - server     (Node.js API standalone, Port 5000)
 # ==============================================================================
 
-ARG APP=server
+ARG APP=all-in-one
 
 # ------------------------------------------------------------------------------
 # 1. Base Stage: Minimal Node.js 20 on Alpine with pnpm
@@ -85,11 +86,48 @@ FROM builder AS server-build
 RUN pnpm --filter server build
 
 # ==============================================================================
-# 5. Production Images
+# 5. Production Targets
 # ==============================================================================
 
 # ------------------------------------------------------------------------------
-# TARGET: customer (Serves on Port 80 for example.com)
+# TARGET: all-in-one (DEFAULT: Single Container for Dokpoly Option 1)
+# Serves Customer, Driver, Admin PWAs + Node.js API via Subdomain Routing on Port 80
+# ------------------------------------------------------------------------------
+FROM node:20-alpine AS all-in-one
+WORKDIR /app
+ENV NODE_ENV=production
+ENV PORT=5000
+
+# Install Nginx and libc6-compat for compiled native modules
+RUN apk add --no-cache nginx libc6-compat
+
+# Copy Nginx configuration and entrypoint script
+COPY docker/nginx-all-in-one.conf /etc/nginx/nginx.conf
+COPY docker/entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
+
+# Copy built frontend distributions
+COPY --from=customer-build /app/apps/customer-pwa/dist /var/www/customer
+COPY --from=driver-build /app/apps/driver-pwa/dist /var/www/driver
+COPY --from=admin-build /app/apps/admin-pwa/dist /var/www/admin
+
+# Copy backend server and dependencies
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/packages ./packages
+COPY --from=server-build /app/server ./server
+
+# Ensure upload directory exists
+RUN mkdir -p /app/server/uploads /run/nginx /var/log/nginx
+
+EXPOSE 80 5000
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+  CMD wget -qO- http://localhost/healthz || exit 1
+
+ENTRYPOINT ["/app/entrypoint.sh"]
+
+# ------------------------------------------------------------------------------
+# TARGET: customer (Standalone Customer PWA on Port 80)
 # ------------------------------------------------------------------------------
 FROM nginx:1.27-alpine AS customer
 COPY docker/nginx.conf.template /etc/nginx/templates/default.conf.template
@@ -101,7 +139,7 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
 CMD ["nginx", "-g", "daemon off;"]
 
 # ------------------------------------------------------------------------------
-# TARGET: driver (Serves on Port 80 for captain.example.com)
+# TARGET: driver (Standalone Driver PWA on Port 80)
 # ------------------------------------------------------------------------------
 FROM nginx:1.27-alpine AS driver
 COPY docker/nginx.conf.template /etc/nginx/templates/default.conf.template
@@ -113,7 +151,7 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
 CMD ["nginx", "-g", "daemon off;"]
 
 # ------------------------------------------------------------------------------
-# TARGET: admin (Serves on Port 80 for admin.example.com)
+# TARGET: admin (Standalone Admin PWA on Port 80)
 # ------------------------------------------------------------------------------
 FROM nginx:1.27-alpine AS admin
 COPY docker/nginx.conf.template /etc/nginx/templates/default.conf.template
@@ -125,7 +163,7 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
 CMD ["nginx", "-g", "daemon off;"]
 
 # ------------------------------------------------------------------------------
-# TARGET: server (Node.js API Server on Port 5000 for api.example.com)
+# TARGET: server (Standalone Node.js Server on Port 5000)
 # ------------------------------------------------------------------------------
 FROM node:20-alpine AS server
 WORKDIR /app
@@ -134,12 +172,10 @@ ENV PORT=5000
 
 RUN apk add --no-cache libc6-compat
 
-# Copy node_modules, shared packages, and built server from builder stage
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/packages ./packages
 COPY --from=server-build /app/server ./server
 
-# Prepare uploads directory with proper permissions
 RUN mkdir -p ./server/uploads && chown -R node:node /app
 
 USER node
@@ -151,7 +187,6 @@ WORKDIR /app/server
 CMD ["node", "dist/app.js"]
 
 # ------------------------------------------------------------------------------
-# DEFAULT FINAL TARGET: Selected via --build-arg APP=<customer|driver|admin|server>
-# (Defaults to server if no build-arg or target is passed)
+# DEFAULT FINAL TARGET: Defaults to all-in-one
 # ------------------------------------------------------------------------------
 FROM ${APP} AS final

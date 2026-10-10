@@ -1,0 +1,43 @@
+#!/bin/sh
+set -e
+
+echo "=================================================="
+echo " Starting Go Mookambika All-In-One Unified Server "
+echo "=================================================="
+
+# Ensure runtime and uploads directories exist
+mkdir -p /app/server/uploads /run/nginx /var/log/nginx /var/www
+
+# Symlink Nginx access/error logs to stdout/stderr for Docker log viewer
+ln -sf /dev/stdout /var/log/nginx/access.log 2>/dev/null || true
+ln -sf /dev/stderr /var/log/nginx/error.log 2>/dev/null || true
+
+# Verify Nginx configuration syntax
+echo "[1/3] Checking Nginx configuration..."
+nginx -t
+
+# Start Node.js API server in the background
+echo "[2/3] Starting Express + Socket.IO API server on port 5000..."
+cd /app/server
+node dist/app.js &
+NODE_PID=$!
+
+# Graceful shutdown handler
+shutdown() {
+    echo "Received termination signal. Shutting down gracefully..."
+    kill -TERM "$NODE_PID" 2>/dev/null || true
+    nginx -s quit 2>/dev/null || true
+    wait "$NODE_PID" 2>/dev/null || true
+    exit 0
+}
+
+trap shutdown SIGTERM SIGINT
+
+# Start Nginx in background
+echo "[3/3] Starting Nginx Subdomain Router on port 80..."
+nginx
+
+echo "All services running! Listening on port 80 (HTTP) and 5000 (Internal API)."
+
+# Wait for the Node.js process. If it crashes, the container stops and Dokpoly restarts it.
+wait "$NODE_PID"
