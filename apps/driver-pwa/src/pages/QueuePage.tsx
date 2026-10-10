@@ -127,7 +127,8 @@ export function QueuePage({ auth }: QueuePageProps) {
   useEffect(() => {
     if (!auth.token) return;
 
-    const socket = io({
+    const socketUrl = import.meta.env.VITE_SOCKET_URL || (import.meta.env.VITE_API_BASE_URL ? import.meta.env.VITE_API_BASE_URL.replace(/\/api.*$/, '') : undefined);
+    const socket = io(socketUrl, {
       auth: { token: auth.token },
       transports: ['polling', 'websocket'],
       autoConnect: true,

@@ -1,4 +1,4 @@
-const API_BASE = '/api/v1';
+const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api/v1';
 
 async function request<T = unknown>(method: string, path: string, body?: unknown, token?: string | null): Promise<T> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
