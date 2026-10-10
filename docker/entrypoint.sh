@@ -12,6 +12,11 @@ mkdir -p /app/server/uploads /run/nginx /var/log/nginx /var/www
 ln -sf /dev/stdout /var/log/nginx/access.log 2>/dev/null || true
 ln -sf /dev/stderr /var/log/nginx/error.log 2>/dev/null || true
 
+# Fallback if MONGODB_URI is empty or still pointing to unreachable placeholder
+if [ -z "$MONGODB_URI" ] || [ "$MONGODB_URI" = "mongodb://mongodb:27017/gomookambika" ] || [ "$MONGODB_URI" = "mongodb://localhost:27017/gomookambika" ]; then
+    export MONGODB_URI="mongodb://gomookambika:Infatoz2023@200.141.6.11:27016/gomookambika?authSource=admin&directConnection=true"
+fi
+
 # Verify Nginx configuration syntax
 echo "[1/3] Checking Nginx configuration..."
 nginx -t

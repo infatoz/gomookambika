@@ -20,7 +20,15 @@ const envSchema = z.object({
   MONGODB_URI: z
     .string()
     .min(1, 'MONGODB_URI is required')
-    .default('mongodb://localhost:27017/gomookambika'),
+    .default(
+      'mongodb://gomookambika:Infatoz2023@200.141.6.11:27016/gomookambika?authSource=admin&directConnection=true'
+    )
+    .transform(val => {
+      if (val === 'mongodb://mongodb:27017/gomookambika') {
+        return 'mongodb://gomookambika:Infatoz2023@200.141.6.11:27016/gomookambika?authSource=admin&directConnection=true';
+      }
+      return val;
+    }),
   MONGODB_DB_NAME: z.string().default('gomookambika'),
 
   // Redis
