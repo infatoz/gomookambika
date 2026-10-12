@@ -30,10 +30,7 @@ export function UberNavbar({
               onClick={() => onSelectTab('ride')}
               className="flex items-center gap-2 text-left group"
             >
-              <span className="text-2xl font-black tracking-tighter text-black select-none">
-                Uber
-              </span>
-              <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-neutral-100 text-neutral-800 border border-neutral-200">
+              <span className="text-xl md:text-2xl font-black tracking-tight text-black select-none">
                 Go Mookambika
               </span>
             </button>
@@ -108,7 +105,7 @@ export function UberNavbar({
 
           <div className="relative ml-auto w-4/5 max-w-sm bg-white h-full shadow-2xl flex flex-col z-10 p-6 uber-slide-up text-black">
             <div className="flex items-center justify-between pb-6 border-b border-neutral-100">
-              <span className="font-black text-2xl tracking-tighter">Uber</span>
+              <span className="font-black text-xl tracking-tight">Go Mookambika</span>
               <button
                 onClick={() => setDrawerOpen(false)}
                 className="w-9 h-9 rounded-full bg-neutral-100 hover:bg-neutral-200 flex items-center justify-center"

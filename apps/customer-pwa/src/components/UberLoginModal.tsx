@@ -110,7 +110,7 @@ export function UberLoginModal({
                 <ArrowLeft className="w-5 h-5 text-neutral-800" />
               </button>
             ) : null}
-            <span className="font-black text-xl tracking-tight">Uber</span>
+            <span className="font-black text-xl tracking-tight">Go Mookambika</span>
           </div>
 
           <button

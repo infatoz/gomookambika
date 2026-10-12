@@ -116,7 +116,7 @@ export function ProfilePage({ auth, onLogout, onOpenLogin }: ProfilePageProps) {
       </button>
 
       <div className="text-center text-[11px] text-neutral-400 pt-2">
-        Go Mookambika v1.0.0 • Uber Experience Edition
+        Go Mookambika v1.0.0
       </div>
     </div>
   );
