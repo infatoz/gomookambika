@@ -65,7 +65,7 @@ function App() {
   }
 
   const tabs: { id: Page; label: string; icon: typeof Car }[] = [
-    { id: 'queue', label: 'Drive & Queue', icon: Car },
+    { id: 'queue', label: 'Captain Queue', icon: Car },
     { id: 'trips', label: 'My Trips', icon: ClipboardList },
     { id: 'earnings', label: 'Earnings', icon: Wallet },
     { id: 'profile', label: 'Profile', icon: User },

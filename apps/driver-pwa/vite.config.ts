@@ -9,8 +9,8 @@ export default defineConfig({
     VitePWA({
       registerType: 'autoUpdate',
       manifest: {
-        name: 'Go Mookambika Driver',
-        short_name: 'GM Driver',
+        name: 'Go Mookambika Captain',
+        short_name: 'Captain',
         theme_color: '#0f111a',
         background_color: '#0f111a',
         display: 'standalone',

@@ -462,12 +462,12 @@ export function QueuePage({ auth }: QueuePageProps) {
       <div className="flex items-center justify-between bg-slate-900/90 backdrop-blur-md p-3.5 rounded-2xl border border-slate-800 shadow-lg">
         <div className="flex items-center gap-3">
           <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-700 flex items-center justify-center text-white font-bold text-lg shadow-md border border-emerald-400/30">
-            {auth.driver?.name?.charAt(0)?.toUpperCase() || 'D'}
+            {auth.driver?.name?.charAt(0)?.toUpperCase() || 'C'}
           </div>
           <div>
             <div className="flex items-center gap-2">
               <span className="font-bold text-white text-base leading-tight">
-                {auth.driver?.name || 'Driver'}
+                {auth.driver?.name || 'Captain'}
               </span>
               <ShieldCheck className="w-4 h-4 text-emerald-400" />
             </div>
@@ -554,7 +554,7 @@ export function QueuePage({ auth }: QueuePageProps) {
           <div className="space-y-1">
             <h2 className="text-lg font-bold text-white">You're Offline</h2>
             <p className="text-xs text-slate-400 max-w-xs">
-              Check in at your taxi stand via QR scanner to join the driver queue and receive trip dispatches.
+              Check in at your taxi stand via QR scanner to join the captain queue and receive trip dispatches.
             </p>
           </div>
 

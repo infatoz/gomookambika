@@ -86,7 +86,7 @@ export function OTPLoginPage({ onLogin }: OTPLoginPageProps) {
         }
       } catch (err: unknown) {
         if (user.role !== 'DRIVER' && user.role !== 'SUPER_ADMIN' && user.role !== 'ASSOCIATION_ADMIN') {
-          setError('This number is not registered as an authorized driver. Please contact the association admin.');
+          setError('This number is not registered as an authorized captain. Please contact the association admin.');
           setLoading(false);
           return;
         }
@@ -108,7 +108,7 @@ export function OTPLoginPage({ onLogin }: OTPLoginPageProps) {
           <Car className="w-8 h-8 text-white" strokeWidth={2.5} />
         </div>
         <div>
-          <h1 className="text-2xl font-black tracking-tight text-white">Driver Partner App</h1>
+          <h1 className="text-2xl font-black tracking-tight text-white">Captain Partner App</h1>
           <p className="text-xs text-slate-400 mt-0.5">Sri Mookambika Tourist Taxi Association</p>
         </div>
       </div>
@@ -227,7 +227,7 @@ export function OTPLoginPage({ onLogin }: OTPLoginPageProps) {
               disabled={loading || otp.length < 6}
               className="btn-primary w-full py-4 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm transition-all shadow-lg shadow-emerald-600/30 flex items-center justify-center gap-2 disabled:opacity-50"
             >
-              <span>{loading ? 'Verifying...' : 'Sign In as Driver Partner'}</span>
+              <span>{loading ? 'Verifying...' : 'Sign In as Captain Partner'}</span>
               <ShieldCheck className="w-4 h-4" />
             </button>
 

@@ -38,7 +38,7 @@ export function DriverProfilePage({ auth, onLogout }: DriverProfilePageProps) {
   const menuItems = [
     {
       icon: ShieldCheck,
-      label: 'Driver Verification & Documents',
+      label: 'Captain Verification & Documents',
       subtitle: 'Driving Licence, Badge & Aadhar',
       color: 'text-emerald-400',
     },
@@ -77,7 +77,7 @@ export function DriverProfilePage({ auth, onLogout }: DriverProfilePageProps) {
         <div className="flex items-center gap-4">
           <div className="relative">
             <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-emerald-600 to-teal-500 text-white flex items-center justify-center text-2xl font-black shadow-lg">
-              {d?.name?.charAt(0)?.toUpperCase() || 'D'}
+              {d?.name?.charAt(0)?.toUpperCase() || 'C'}
             </div>
             <div className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-emerald-500 border-2 border-slate-900 flex items-center justify-center text-white">
               <ShieldCheck className="w-3.5 h-3.5" />
@@ -86,7 +86,7 @@ export function DriverProfilePage({ auth, onLogout }: DriverProfilePageProps) {
 
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">
-              <h2 className="text-lg font-bold text-white truncate">{d?.name || 'Driver'}</h2>
+              <h2 className="text-lg font-bold text-white truncate">{d?.name || 'Captain'}</h2>
             </div>
             <div className="text-xs text-slate-400 font-mono mt-0.5">{d?.phone || 'Mobile'}</div>
             <div className="flex items-center gap-2 mt-1.5">
@@ -106,7 +106,7 @@ export function DriverProfilePage({ auth, onLogout }: DriverProfilePageProps) {
           <div className="text-slate-400">Sri Mookambika Taxi Association</div>
           <div className="text-emerald-400 font-semibold flex items-center gap-1">
             <ShieldCheck className="w-3.5 h-3.5" />
-            <span>Verified Driver</span>
+            <span>Verified Captain</span>
           </div>
         </div>
       </div>
@@ -138,8 +138,8 @@ export function DriverProfilePage({ auth, onLogout }: DriverProfilePageProps) {
 
       {/* App Version Info */}
       <div className="text-center py-2 text-xs text-slate-500 space-y-0.5">
-        <div className="font-semibold text-slate-400">Go Mookambika Driver v1.0.0</div>
-        <div>Official Tourist Taxi Driver Platform</div>
+        <div className="font-semibold text-slate-400">Go Mookambika Captain v1.0.0</div>
+        <div>Official Tourist Taxi Captain Platform</div>
       </div>
 
       {/* Sign Out Button */}
@@ -148,7 +148,7 @@ export function DriverProfilePage({ auth, onLogout }: DriverProfilePageProps) {
         className="w-full py-3.5 rounded-2xl border border-rose-500/30 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 font-bold text-sm transition-all flex items-center justify-center gap-2 active:scale-95"
       >
         <LogOut className="w-4 h-4" />
-        <span>Sign Out from Driver App</span>
+        <span>Sign Out from Captain App</span>
       </button>
     </div>
   );

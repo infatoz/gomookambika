@@ -110,7 +110,7 @@ export function EarningsPage({ auth }: EarningsPageProps) {
             <span>Net Take-Home Earnings</span>
           </span>
           <span className="bg-emerald-500/20 px-2 py-0.5 rounded text-[10px] text-emerald-300 border border-emerald-500/30">
-            100% Driver Share
+            100% Captain Share
           </span>
         </div>
 
@@ -161,7 +161,7 @@ export function EarningsPage({ auth }: EarningsPageProps) {
         </div>
         <p className="text-slate-400 text-[11px] leading-relaxed">
           All fares are standardized according to association approved rates. Zero hidden commissions.
-          All payments received in cash or UPI are retained by the driver immediately.
+          All payments received in cash or UPI are retained by the captain immediately.
         </p>
       </div>
     </div>
