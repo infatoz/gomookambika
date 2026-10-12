@@ -19,6 +19,7 @@ import { notFoundHandler } from '@/middlewares/notFoundHandler';
 import { rateLimiter } from '@/middlewares/rateLimiter';
 import { logger, httpLogStream } from '@/utils/logger';
 import { setupSwagger } from '@/config/swagger';
+import { ensureDefaultDemoData } from '@/utils/initDemoData';
 
 const app = express();
 const server = http.createServer(app);
@@ -115,6 +116,9 @@ async function startServer() {
   try {
     // MongoDB is required — fatal if unavailable
     await connectMongoDB();
+
+    // Ensure essential demo data exists (Super Admin, vehicle categories, demo driver)
+    await ensureDefaultDemoData();
 
     // Redis is optional — server runs in degraded mode without it
     await connectRedis();

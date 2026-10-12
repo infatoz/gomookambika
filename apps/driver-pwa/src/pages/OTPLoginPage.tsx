@@ -64,7 +64,7 @@ export function OTPLoginPage({ onLogin }: OTPLoginPageProps) {
       // Step 1: verify OTP — get access token + user
       const res = await api.post<{
         data: { tokens: { accessToken: string }; user: { _id: string; name: string; phone: string; role: string } };
-      }>('/auth/otp/verify', { phone: phoneNum, otp, purpose: 'LOGIN' });
+      }>('/auth/otp/verify', { phone: phoneNum, otp, purpose: 'LOGIN', role: 'DRIVER' });
 
       const token = res.data.tokens.accessToken;
       const user = res.data.user;
@@ -117,9 +117,18 @@ export function OTPLoginPage({ onLogin }: OTPLoginPageProps) {
         {step === 'phone' ? (
           <>
             <div>
-              <label className="block text-xs uppercase tracking-wider text-slate-400 mb-2 font-bold">
-                Registered Mobile Number
-              </label>
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-xs uppercase tracking-wider text-slate-400 font-bold">
+                  Registered Mobile Number
+                </label>
+                <button
+                  type="button"
+                  onClick={() => { setPhone('9876543210'); setError(''); }}
+                  className="text-xs text-emerald-400 hover:text-emerald-300 font-mono font-bold underline"
+                >
+                  Demo: 9876543210
+                </button>
+              </div>
               <div className="flex gap-2">
                 <div className="px-3.5 py-3 rounded-2xl bg-slate-900 border border-slate-800 text-slate-200 font-mono font-bold text-sm flex items-center shrink-0">
                   +91
@@ -194,12 +203,16 @@ export function OTPLoginPage({ onLogin }: OTPLoginPageProps) {
                 autoFocus
                 onKeyDown={e => e.key === 'Enter' && handleVerifyOTP()}
               />
-              <div className="mt-2 text-center text-xs text-amber-400/90 bg-amber-950/40 border border-amber-800/40 rounded-xl py-2 px-3 flex items-center justify-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => { setOtp('123456'); setError(''); }}
+                className="w-full mt-2.5 text-center text-xs text-amber-300 bg-amber-950/40 border border-amber-600/40 rounded-xl py-2 px-3 flex items-center justify-center gap-1.5 hover:bg-amber-900/40 transition-all cursor-pointer font-medium"
+              >
                 <Sparkles className="w-3.5 h-3.5 text-amber-400" />
                 <span>
-                  Dev Mode: Enter <strong>123456</strong>
+                  Demo OTP: <strong className="font-mono text-amber-400 text-sm">123456</strong> (Tap to auto-fill)
                 </span>
-              </div>
+              </button>
             </div>
 
             {error && (

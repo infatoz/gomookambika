@@ -41,6 +41,7 @@ export const verifyOTPSchema = z.object({
   phone: phoneSchema,
   otp: z.string().length(6, 'OTP must be 6 digits').regex(/^\d{6}$/, 'OTP must be numeric'),
   purpose: z.enum(['LOGIN', 'TRIP_START', 'VERIFY_PHONE']).default('LOGIN'),
+  role: z.enum(['CUSTOMER', 'DRIVER', 'ADMIN']).optional(),
 });
 
 export const adminLoginSchema = z.object({

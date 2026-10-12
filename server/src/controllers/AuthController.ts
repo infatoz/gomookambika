@@ -12,8 +12,8 @@ export class AuthController {
 
   // POST /api/v1/auth/verify-otp
   async verifyOTP(req: Request, res: Response): Promise<void> {
-    const { phone, otp, purpose = OTPPurpose.LOGIN } = req.body;
-    const result = await authService.verifyOTP(phone, otp, purpose, req.ip ?? '');
+    const { phone, otp, purpose = OTPPurpose.LOGIN, role } = req.body;
+    const result = await authService.verifyOTP(phone, otp, purpose, req.ip ?? '', role);
     res.json({
       success: true,
       message: result.isNewUser ? 'Welcome to Go Mookambika!' : 'Login successful',

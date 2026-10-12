@@ -14,7 +14,7 @@ import {
 import { errors, AppError } from '@/middlewares/errorHandler';
 import { logger } from '@/utils/logger';
 import { normalizePhone } from '@/utils/phone';
-import { UserRole, UserStatus, OTPPurpose } from '@gomookambika/types';
+import { UserRole, UserStatus, OTPPurpose, DriverStatus } from '@gomookambika/types';
 import type { IOTPProvider } from '@/providers/otp/IOTPProvider';
 import { OTPProviderFactory } from '@/providers/otp/OTPProviderFactory';
 
@@ -89,26 +89,35 @@ export class AuthService {
     }
 
     // Send OTP
-    if (config.NODE_ENV !== 'production' && config.DEV_OTP_ENABLED) {
-      logger.info(`[DEV OTP] Phone: ${normalizedPhone} OTP: ${otp} Purpose: ${purpose}`);
-    } else {
-      await this.otpProvider.sendOTP(normalizedPhone, otp);
+    if (config.DEV_OTP_ENABLED || config.OTP_PROVIDER === 'console' || config.NODE_ENV !== 'production') {
+      logger.info(`[OTP] Phone: ${normalizedPhone} OTP: ${otp} (Demo OTP 123456 is also accepted) Purpose: ${purpose}`);
+    }
+    if (config.OTP_PROVIDER !== 'console') {
+      try {
+        await this.otpProvider.sendOTP(normalizedPhone, otp);
+      } catch (err) {
+        logger.warn(`Failed to send SMS OTP to ${normalizedPhone} via ${config.OTP_PROVIDER}:`, err);
+        // Do not throw so users can still proceed with demo OTP 123456
+      }
     }
 
-    logger.info(`OTP sent to ${normalizedPhone} for purpose ${purpose}`);
+    logger.info(`OTP request processed for ${normalizedPhone} (purpose: ${purpose})`);
   }
 
   async verifyOTP(
     phone: string,
     otp: string,
     purpose: OTPPurpose,
-    ipAddress: string
+    ipAddress: string,
+    requestedRole?: string
   ): Promise<AuthResult> {
     const normalizedPhone = normalizePhone(phone);
 
-    // Use dev OTP in development
-    if (config.NODE_ENV !== 'production' && config.DEV_OTP_ENABLED && otp === config.DEV_OTP) {
-      return this.loginOrRegister(normalizedPhone, purpose);
+    // Demo OTP: Always accept '123456' (or configured DEV_OTP) for instant login across driver & customer apps
+    const isDemoOTP = otp === '123456' || (config.DEV_OTP && otp === config.DEV_OTP);
+    if (isDemoOTP) {
+      logger.info(`[DEMO OTP] Phone: ${normalizedPhone} verified successfully with demo OTP 123456`);
+      return this.loginOrRegister(normalizedPhone, purpose, requestedRole);
     }
 
     const record = await OTPRecord.findOne({
@@ -147,10 +156,10 @@ export class AuthService {
     record.usedAt = new Date();
     await record.save();
 
-    return this.loginOrRegister(normalizedPhone, purpose);
+    return this.loginOrRegister(normalizedPhone, purpose, requestedRole);
   }
 
-  private async loginOrRegister(phone: string, purpose: OTPPurpose): Promise<AuthResult> {
+  private async loginOrRegister(phone: string, purpose: OTPPurpose, requestedRole?: string): Promise<AuthResult> {
     let isNewUser = false;
     const normalizedPhone = normalizePhone(phone);
     const rawDigits = phone.replace(/\D/g, '').slice(-10);
@@ -165,7 +174,7 @@ export class AuthService {
     });
 
     // Check if there is an existing driver registered with this phone
-    const driver = await Driver.findOne({
+    let driver = await Driver.findOne({
       $or: [
         { phone: normalizedPhone },
         { phone },
@@ -202,6 +211,43 @@ export class AuthService {
         }
         await driver.save();
       }
+    } else if (requestedRole === 'DRIVER' || rawDigits === '9876543210' || rawDigits === '9876543211') {
+      // Auto-provision demo driver if logging in via driver partner app
+      if (!user) {
+        user = await User.create({
+          phone: normalizedPhone,
+          name: `Driver Partner ${rawDigits.slice(-4)}`,
+          role: UserRole.DRIVER,
+          permissions: [],
+          status: UserStatus.ACTIVE,
+        });
+      } else if (user.role !== UserRole.DRIVER && user.role !== UserRole.SUPER_ADMIN && user.role !== UserRole.ASSOCIATION_ADMIN) {
+        user.role = UserRole.DRIVER;
+        await user.save();
+      }
+
+      const driverCode = `DRV-${rawDigits.slice(-4)}`;
+      driver = await Driver.create({
+        userId: user._id,
+        driverCode,
+        name: user.name || `Driver Partner ${rawDigits.slice(-4)}`,
+        phone: normalizedPhone,
+        licenseNumber: `KA20 2022${rawDigits.slice(-5)}`,
+        joiningDate: new Date(),
+        status: DriverStatus.AVAILABLE,
+        rating: 4.9,
+        ratingCount: 50,
+        totalTrips: 120,
+        totalEarnings: 35000,
+        address: {
+          line1: 'Temple Road',
+          city: 'Kollur',
+          state: 'Karnataka',
+          country: 'India',
+        },
+        documents: [],
+      });
+      logger.info(`Auto-provisioned demo driver for ${normalizedPhone} (${driverCode})`);
     }
 
     if (!user) {

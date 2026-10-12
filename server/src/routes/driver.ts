@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { Driver } from '@/models/Driver';
 import { Vehicle } from '@/models/Vehicle';
+import { VehicleCategory } from '@/models/VehicleCategory';
 import { Trip } from '@/models/Trip';
 import { authenticate, requireRoles } from '@/middlewares/auth';
 import { UserRole } from '@gomookambika/types';
@@ -30,7 +31,30 @@ router.get('/vehicle', async (req, res) => {
     $or: [{ userId: req.user!.userId }, { _id: req.user!.userId }],
   });
   if (!driver) { res.status(404).json({ success: false, message: 'Driver not found' }); return; }
-  const vehicle = await Vehicle.findOne({ assignedDriverId: driver._id }).populate('categoryId');
+  let vehicle = await Vehicle.findOne({ assignedDriverId: driver._id }).populate('categoryId');
+  if (!vehicle) {
+    const defaultCat = await VehicleCategory.findOne({ status: 'ACTIVE' });
+    if (defaultCat) {
+      const reg = `KA20 D ${driver.driverCode ? driver.driverCode.replace('DRV-', '') : '1001'}`;
+      vehicle = await Vehicle.create({
+        registrationNumber: reg,
+        categoryId: defaultCat._id,
+        brand: 'Maruti Suzuki',
+        vehicleModel: 'Dzire Tour',
+        color: 'White',
+        fuelType: 'PETROL',
+        manufacturingYear: 2023,
+        seatCapacity: 4,
+        luggageCapacity: 2,
+        ac: true,
+        ownerName: driver.name,
+        assignedDriverId: driver._id,
+        status: 'ACTIVE',
+        documents: [],
+      });
+      vehicle = await Vehicle.findById(vehicle._id).populate('categoryId');
+    }
+  }
   res.json({ success: true, data: vehicle });
 });
 
