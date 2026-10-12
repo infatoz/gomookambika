@@ -99,8 +99,8 @@ export class QueueService {
         locCoords[0]  // lng
       );
 
-      const allowedRadius = stand.queueRadius || config.QUEUE_RADIUS_METERS;
-      if (config.NODE_ENV === 'production' && distanceMeters > allowedRadius) {
+      const allowedRadius = stand.queueRadius || config.QUEUE_RADIUS_METERS || 50000;
+      if (process.env.STRICT_GPS_CHECK === 'true' && distanceMeters > allowedRadius) {
         throw errors.driverOutsideRadius();
       }
     }

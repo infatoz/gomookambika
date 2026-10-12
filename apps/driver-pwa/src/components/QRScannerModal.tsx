@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { Html5Qrcode, CameraDevice } from 'html5-qrcode';
+import jsQR from 'jsqr';
 import { api } from '@/lib/api';
 import {
   X,
@@ -12,6 +13,7 @@ import {
   AlertTriangle,
   Car,
   ArrowRight,
+  Loader2,
 } from 'lucide-react';
 
 interface TaxiStandQuickOption {
@@ -45,6 +47,7 @@ export function QRScannerModal({
   const [showManual, setShowManual] = useState(false);
   const [stands, setStands] = useState<TaxiStandQuickOption[]>([]);
   const [loadingStands, setLoadingStands] = useState(false);
+  const [decodingFile, setDecodingFile] = useState(false);
 
   const scannerRef = useRef<Html5Qrcode | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -225,17 +228,125 @@ export function QRScannerModal({
     }
   };
 
+  const decodeQRFromImage = async (file: File): Promise<string | null> => {
+    // Strategy 1: Browser Native BarcodeDetector (Android Chrome & modern browsers)
+    if (typeof window !== 'undefined' && 'BarcodeDetector' in window) {
+      try {
+        const BarcodeDetectorClass = (window as any).BarcodeDetector;
+        const formats = await BarcodeDetectorClass.getSupportedFormats?.().catch(() => ['qr_code']);
+        if (!formats || formats.includes('qr_code')) {
+          const detector = new BarcodeDetectorClass({ formats: ['qr_code'] });
+          const bitmap = await createImageBitmap(file);
+          const codes = await detector.detect(bitmap);
+          if (codes && codes.length > 0 && codes[0]?.rawValue) {
+            return codes[0].rawValue;
+          }
+        }
+      } catch (e) {
+        console.warn('Native BarcodeDetector attempt skipped/failed:', e);
+      }
+    }
+
+    // Strategy 2: jsQR with multi-scale canvas sampling (handles high-res camera photos & normal images)
+    try {
+      const objectUrl = URL.createObjectURL(file);
+      const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+        const image = new Image();
+        image.onload = () => resolve(image);
+        image.onerror = reject;
+        image.src = objectUrl;
+      });
+
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+
+      if (ctx && img.naturalWidth && img.naturalHeight) {
+        const origW = img.naturalWidth;
+        const origH = img.naturalHeight;
+
+        // Try adaptive scales (1000px, 600px, and natural/full resolution)
+        const targetSizes = [
+          Math.min(1000, Math.max(origW, origH)),
+          Math.min(600, Math.max(origW, origH)),
+          Math.max(origW, origH),
+        ];
+        const uniqueSizes = Array.from(new Set(targetSizes));
+
+        for (const targetSize of uniqueSizes) {
+          let w = origW;
+          let h = origH;
+          if (Math.max(origW, origH) > targetSize) {
+            const ratio = targetSize / Math.max(origW, origH);
+            w = Math.round(origW * ratio);
+            h = Math.round(origH * ratio);
+          }
+
+          canvas.width = w;
+          canvas.height = h;
+          ctx.drawImage(img, 0, 0, w, h);
+
+          const imgData = ctx.getImageData(0, 0, w, h);
+          const code = jsQR(imgData.data, w, h, {
+            inversionAttempts: 'attemptBoth',
+          });
+
+          if (code && code.data) {
+            URL.revokeObjectURL(objectUrl);
+            return code.data;
+          }
+        }
+      }
+      URL.revokeObjectURL(objectUrl);
+    } catch (e) {
+      console.warn('jsQR scan attempt failed:', e);
+    }
+
+    // Strategy 3: Dedicated offscreen Html5Qrcode instance (isolated from camera)
+    try {
+      const hiddenContainerId = 'gm-qr-hidden-file-reader';
+      let hiddenContainer = document.getElementById(hiddenContainerId);
+      if (!hiddenContainer) {
+        hiddenContainer = document.createElement('div');
+        hiddenContainer.id = hiddenContainerId;
+        hiddenContainer.style.display = 'none';
+        document.body.appendChild(hiddenContainer);
+      }
+      const fileScanner = new Html5Qrcode(hiddenContainerId);
+      try {
+        const text = await fileScanner.scanFile(file, true);
+        try { fileScanner.clear(); } catch {}
+        if (text) return text;
+      } catch {
+        try { fileScanner.clear(); } catch {}
+      }
+    } catch (e) {
+      console.warn('Html5Qrcode file fallback failed:', e);
+    }
+
+    return null;
+  };
+
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     setCameraError(null);
+    setDecodingFile(true);
     try {
-      const scanner = scannerRef.current || new Html5Qrcode(containerId);
-      const decodedText = await scanner.scanFile(file, true);
-      handleSuccessfulScan(decodedText);
-    } catch (err) {
-      setCameraError('No valid QR code found in the selected image. Please try another photo.');
+      const decodedText = await decodeQRFromImage(file);
+      if (decodedText) {
+        handleSuccessfulScan(decodedText);
+      } else {
+        setCameraError('No QR code could be detected in this photo. Please upload a clear photo of the taxi stand QR code.');
+      }
+    } catch (err: any) {
+      console.error('File scan error:', err);
+      setCameraError('Could not read QR code from the selected image. Please try another photo or choose a stand below.');
+    } finally {
+      setDecodingFile(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
     }
   };
 
@@ -305,6 +416,15 @@ export function QRScannerModal({
             </div>
           )}
 
+          {/* Loading Indicator when decoding uploaded photo */}
+          {decodingFile && (
+            <div className="absolute inset-0 bg-black/85 flex flex-col items-center justify-center gap-3 z-30">
+              <div className="w-10 h-10 border-4 border-emerald-400 border-t-transparent rounded-full animate-spin" />
+              <div className="text-sm text-emerald-300 font-medium">Scanning Photo for QR...</div>
+              <div className="text-xs text-slate-400">Processing image resolution...</div>
+            </div>
+          )}
+
           {/* Loading Indicator when joining queue */}
           {loading && (
             <div className="absolute inset-0 bg-black/85 flex flex-col items-center justify-center gap-3 z-30">
@@ -342,10 +462,20 @@ export function QRScannerModal({
 
           <button
             onClick={() => fileInputRef.current?.click()}
-            className="px-3 py-1.5 rounded-xl bg-slate-800/80 hover:bg-slate-700 active:scale-95 text-slate-200 text-xs font-medium flex items-center gap-1.5 transition-all"
+            disabled={decodingFile || loading}
+            className="px-3 py-1.5 rounded-xl bg-slate-800/80 hover:bg-slate-700 active:scale-95 text-slate-200 text-xs font-medium flex items-center gap-1.5 transition-all disabled:opacity-50"
           >
-            <ImageIcon className="w-3.5 h-3.5 text-slate-300" />
-            <span>Upload Photo</span>
+            {decodingFile ? (
+              <>
+                <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-400" />
+                <span>Reading...</span>
+              </>
+            ) : (
+              <>
+                <ImageIcon className="w-3.5 h-3.5 text-slate-300" />
+                <span>Upload Photo</span>
+              </>
+            )}
           </button>
           <input
             ref={fileInputRef}

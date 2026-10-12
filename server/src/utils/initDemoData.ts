@@ -4,7 +4,9 @@ import { Driver } from '@/models/Driver';
 import { Vehicle } from '@/models/Vehicle';
 import { VehicleCategory } from '@/models/VehicleCategory';
 import { Location } from '@/models/Location';
-import { UserRole, UserStatus, DriverStatus, FuelType, LocationType, Status } from '@gomookambika/types';
+import { TaxiStand } from '@/models/TaxiStand';
+import { qrService } from '@/services/QRService';
+import { UserRole, UserStatus, DriverStatus, FuelType, LocationType, Status, QRStatus } from '@gomookambika/types';
 import argon2 from 'argon2';
 
 export async function ensureDefaultDemoData(): Promise<void> {
@@ -157,19 +159,41 @@ export async function ensureDefaultDemoData(): Promise<void> {
 
     // 4. Default Locations
     const locCount = await Location.countDocuments();
-    if (locCount === 0) {
-      await Location.create({
+    let defaultLoc = await Location.findOne({ status: Status.ACTIVE });
+    if (locCount === 0 || !defaultLoc) {
+      defaultLoc = await Location.create({
         name: 'Sri Mookambika Temple',
         code: 'TEMPLE_KOLLUR',
         type: LocationType.TEMPLE,
         description: 'Main Temple Entrance, Kollur',
         address: { line1: 'Temple Road', city: 'Kollur', state: 'Karnataka', country: 'India', postalCode: '576220' },
         geoPoint: { type: 'Point', coordinates: [74.8100, 13.8617] },
-        queueRadius: 200,
+        queueRadius: 5000,
         queueEnabled: true,
         status: Status.ACTIVE,
       });
       logger.info('✅ Default locations ensured');
+    }
+
+    // 5. Default Taxi Stand with Active QR Code
+    const standCount = await TaxiStand.countDocuments();
+    if (standCount === 0 && defaultLoc && existingAdmin) {
+      const standDoc = new TaxiStand({
+        name: 'Kollur Mookambika Temple Stand',
+        locationId: defaultLoc._id,
+        queueRadius: 5000,
+        status: Status.ACTIVE,
+        queueEnabled: true,
+        allowedVehicleCategories: sedanCat ? [sedanCat._id] : [],
+        createdBy: existingAdmin._id,
+      });
+      const { token, tokenId } = qrService.generateQRToken(standDoc._id.toString());
+      standDoc.qrToken = token;
+      standDoc.qrTokenId = tokenId;
+      standDoc.qrStatus = QRStatus.ACTIVE;
+      standDoc.qrGeneratedAt = new Date();
+      await standDoc.save();
+      logger.info('✅ Default Taxi Stand created with active QR code');
     }
   } catch (err) {
     logger.warn('Failed to ensure default demo data on startup:', err);

@@ -851,6 +851,7 @@ export function QueuePage({ auth }: QueuePageProps) {
         isOpen={qrModalOpen}
         onClose={() => setQrModalOpen(false)}
         onScanSuccess={handleQRScanSuccess}
+        loading={actionLoading}
       />
     </div>
   );

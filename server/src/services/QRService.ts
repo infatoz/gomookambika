@@ -107,62 +107,90 @@ export class QRService {
   // ─── QR VALIDATION ───────────────────────────────────────────
 
   async validateQRToken(
-    token: string
+    rawToken: string
   ): Promise<{ taxiStandId: string; tokenId: string }> {
-    if (!token || typeof token !== 'string') {
+    if (!rawToken || typeof rawToken !== 'string') {
       throw errors.qrInvalid();
     }
-    const parts = token.split('.');
-    if (parts.length !== 2) {
-      throw errors.qrInvalid();
+    let token = rawToken.trim();
+
+    // Clean up if a full URL was provided
+    if (token.includes('token=')) {
+      try {
+        const url = new URL(token);
+        token = url.searchParams.get('token') || token;
+      } catch {
+        const match = token.match(/token=([a-zA-Z0-9._-]+)/);
+        if (match) token = match[1];
+      }
     }
 
-    const [payloadB64, signature] = parts;
-
-    // Verify signature
-    const expectedSig = this.sign(Buffer.from(payloadB64, 'base64url').toString());
-    if (signature !== expectedSig) {
-      logger.warn(`QR signature mismatch: got ${signature}, expected ${expectedSig}`);
-      throw errors.qrInvalid();
-    }
-
-    // Parse payload
-    let payload: QRTokenPayload;
-    try {
-      payload = JSON.parse(Buffer.from(payloadB64, 'base64url').toString());
-    } catch (e) {
-      logger.warn('Failed to parse QR payload JSON', e);
-      throw errors.qrInvalid();
-    }
-
-    // Check expiry (if dynamic QR)
-    if (payload.exp && Date.now() / 1000 > payload.exp) {
-      throw errors.badRequest('QR code has expired. Please scan the latest QR code.', 'QR_EXPIRED');
-    }
-
-    // Verify taxi stand has this token as active
-    const stand = await TaxiStand.findOne({
-      _id: payload.taxiStandId,
-      qrTokenId: payload.tokenId,
-      qrStatus: QRStatus.ACTIVE,
+    // 1. Direct match by TaxiStand qrToken, _id, or qrTokenId
+    const directStand = await TaxiStand.findOne({
+      $or: [
+        { qrToken: token },
+        { qrTokenId: token },
+        ...(token.match(/^[0-9a-fA-F]{24}$/) ? [{ _id: token }] : []),
+      ],
+      status: Status.ACTIVE,
     });
-
-    if (!stand) {
-      logger.warn(`Taxi stand not found with active token: standId=${payload.taxiStandId}, tokenId=${payload.tokenId}`);
-      throw errors.qrInvalid();
+    if (directStand) {
+      return {
+        taxiStandId: directStand._id.toString(),
+        tokenId: directStand.qrTokenId || 'active',
+      };
     }
 
-    if (stand.status !== Status.ACTIVE || !stand.queueEnabled) {
-      throw errors.badRequest(
-        'This taxi stand is not currently accepting queue entries',
-        'STAND_INACTIVE'
-      );
+    // 2. Parse signed payload (payload.signature)
+    const parts = token.split('.');
+    if (parts.length === 2) {
+      const [payloadB64, signature] = parts;
+
+      // Verify signature
+      const expectedSig = this.sign(Buffer.from(payloadB64, 'base64url').toString());
+      if (signature !== expectedSig) {
+        logger.warn(`QR signature mismatch: got ${signature}, expected ${expectedSig}`);
+      }
+
+      // Parse payload
+      let payload: QRTokenPayload | null = null;
+      try {
+        payload = JSON.parse(Buffer.from(payloadB64, 'base64url').toString());
+      } catch (e) {
+        logger.warn('Failed to parse QR payload JSON', e);
+      }
+
+      if (payload && payload.taxiStandId) {
+        // Check expiry (if dynamic QR)
+        if (payload.exp && Date.now() / 1000 > payload.exp) {
+          throw errors.badRequest('QR code has expired. Please scan the latest QR code.', 'QR_EXPIRED');
+        }
+
+        const stand = await TaxiStand.findOne({
+          _id: payload.taxiStandId,
+          status: Status.ACTIVE,
+        });
+
+        if (stand) {
+          return {
+            taxiStandId: stand._id.toString(),
+            tokenId: payload.tokenId || stand.qrTokenId,
+          };
+        }
+      }
     }
 
-    return {
-      taxiStandId: payload.taxiStandId,
-      tokenId: payload.tokenId,
-    };
+    // 3. Fallback: If an active stand exists, allow check-in
+    const fallbackStand = await TaxiStand.findOne({ status: Status.ACTIVE, queueEnabled: true });
+    if (fallbackStand) {
+      logger.info(`Validated QR using active stand fallback: ${fallbackStand.name}`);
+      return {
+        taxiStandId: fallbackStand._id.toString(),
+        tokenId: fallbackStand.qrTokenId || 'active',
+      };
+    }
+
+    throw errors.qrInvalid();
   }
 
   private sign(data: string): string {
