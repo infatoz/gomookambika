@@ -82,7 +82,7 @@ export function UberRideSelector({
       ? categories
       : [
           {
-            _id: 'cat_sedan',
+            _id: '6acd2b3dc276ba24f7b06f1c',
             name: 'Sedan Comfort',
             code: 'SEDAN',
             seatCapacity: 4,
@@ -92,7 +92,7 @@ export function UberRideSelector({
             ratePerKm: 18,
           },
           {
-            _id: 'cat_hatchback',
+            _id: '6acd2b3dc276ba24f7b06f1e',
             name: 'Hatchback Mini',
             code: 'HATCHBACK',
             seatCapacity: 4,
@@ -102,7 +102,7 @@ export function UberRideSelector({
             ratePerKm: 15,
           },
           {
-            _id: 'cat_suv',
+            _id: '6acd2b3dc276ba24f7b06f1d',
             name: 'SUV Prime XL',
             code: 'SUV',
             seatCapacity: 6,
@@ -112,7 +112,7 @@ export function UberRideSelector({
             ratePerKm: 22,
           },
           {
-            _id: 'cat_auto',
+            _id: '6acd2b3dc276ba24f7b06f1f',
             name: 'Auto Rickshaw',
             code: 'AUTO',
             seatCapacity: 3,

@@ -237,12 +237,12 @@ export const queueHeartbeatSchema = z.object({
 // ─── BOOKING SCHEMAS ─────────────────────────────────────────
 
 export const createBookingSchema = z.object({
-  tripType: z.nativeEnum(TripType),
+  tripType: z.nativeEnum(TripType).default(TripType.ONE_WAY),
   pickupLocation: z.object({
     latitude: z.number().min(-90).max(90),
     longitude: z.number().min(-180).max(180),
     address: z.string().min(1).max(500),
-    locationId: mongoIdSchema.optional(),
+    locationId: z.string().nullish(),
     name: z.string().max(100).optional(),
   }),
   dropLocation: z
@@ -250,14 +250,14 @@ export const createBookingSchema = z.object({
       latitude: z.number().min(-90).max(90),
       longitude: z.number().min(-180).max(180),
       address: z.string().min(1).max(500),
-      locationId: mongoIdSchema.optional(),
+      locationId: z.string().nullish(),
       name: z.string().max(100).optional(),
     })
     .optional(),
   scheduledAt: z.string().datetime({ offset: true }).optional(),
-  passengers: z.number().int().min(1).max(20),
-  vehicleCategoryId: mongoIdSchema,
-  paymentOption: z.nativeEnum(PaymentOption),
+  passengers: z.number().int().min(1).max(20).default(1),
+  vehicleCategoryId: z.string().min(1),
+  paymentOption: z.nativeEnum(PaymentOption).or(z.enum(['CASH', 'ONLINE', 'FULL_PAYMENT', 'PARTIAL_PAYMENT', 'PAY_LATER', 'PAY_AT_END'])),
   notes: z.string().max(500).optional(),
 });
 
@@ -268,12 +268,12 @@ export const fareEstimateSchema = z.object({
   pickupLongitude: z.number().min(-180).max(180),
   dropLatitude: z.number().min(-90).max(90),
   dropLongitude: z.number().min(-180).max(180),
-  vehicleCategoryId: mongoIdSchema,
-  tripType: z.nativeEnum(TripType),
+  vehicleCategoryId: z.string().min(1),
+  tripType: z.nativeEnum(TripType).default(TripType.ONE_WAY),
   scheduledAt: z.string().datetime({ offset: true }).optional(),
   passengers: z.number().int().min(1).max(20).optional(),
-  pickupLocationId: mongoIdSchema.optional(),
-  dropLocationId: mongoIdSchema.optional(),
+  pickupLocationId: z.string().nullish(),
+  dropLocationId: z.string().nullish(),
 });
 
 // ─── VEHICLE ASSIGNMENT SCHEMA ───────────────────────────────

@@ -40,12 +40,36 @@ export class FareService {
   async calculateFare(input: FareInput): Promise<FareEstimateResult> {
     const { distanceKm, vehicleCategoryId, tripType, scheduledAt, pickupLocationId, dropLocationId } = input;
 
+    const isValidObjectId = (id?: string | null): boolean =>
+      typeof id === 'string' && /^[0-9a-fA-F]{24}$/.test(id);
+
+    let category = null;
+    if (isValidObjectId(vehicleCategoryId)) {
+      category = await VehicleCategory.findById(vehicleCategoryId);
+    }
+    if (!category) {
+      category = await VehicleCategory.findOne({
+        $or: [
+          { code: vehicleCategoryId.toUpperCase() },
+          { name: new RegExp(vehicleCategoryId, 'i') },
+        ],
+      });
+    }
+    if (!category) {
+      category = await VehicleCategory.findOne({ status: 'ACTIVE' }).sort({ sortOrder: 1 });
+    }
+    if (!category) {
+      throw errors.notFound('Vehicle Category');
+    }
+
+    const resolvedCategoryId = category._id.toString();
+
     // Find the best matching pricing rule
     const rule = await this.findApplicableRule(
-      vehicleCategoryId,
+      resolvedCategoryId,
       tripType,
-      pickupLocationId,
-      dropLocationId
+      isValidObjectId(pickupLocationId) ? pickupLocationId : undefined,
+      isValidObjectId(dropLocationId) ? dropLocationId : undefined
     );
 
     let baseFare = 0;
@@ -56,8 +80,6 @@ export class FareService {
     let nightMultiplier = 1.0;
     let configuredDriverAllowance = 0;
     let effectiveRatePerKm: number | undefined = undefined;
-
-    const category = await VehicleCategory.findById(vehicleCategoryId);
 
     if (rule) {
       const result = this.applyRule(rule, distanceKm, input.durationMinutes);

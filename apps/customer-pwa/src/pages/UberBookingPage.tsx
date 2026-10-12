@@ -139,6 +139,10 @@ export function UberBookingPage({
     setLoadingEstimate(true);
     setBookingError('');
 
+    const isMongoId = (id?: string) => typeof id === 'string' && /^[0-9a-fA-F]{24}$/.test(id);
+    const pLocId = isMongoId(selectedPickupLoc?._id) ? selectedPickupLoc?._id : undefined;
+    const dLocId = isMongoId(selectedDropLoc?._id) ? selectedDropLoc?._id : undefined;
+
     try {
       const res = await api.post<{
         data: {
@@ -152,8 +156,8 @@ export function UberBookingPage({
         pickupLongitude: pickupCoords.lng,
         dropLatitude: dropCoords?.lat || 13.8741,
         dropLongitude: dropCoords?.lng || 74.6369,
-        pickupLocationId: selectedPickupLoc?._id,
-        dropLocationId: selectedDropLoc?._id,
+        pickupLocationId: pLocId,
+        dropLocationId: dLocId,
         vehicleCategoryId: cat._id,
         tripType: 'ONE_WAY',
       });
@@ -211,6 +215,10 @@ export function UberBookingPage({
     setBookingLoading(true);
     setBookingError('');
 
+    const isMongoId = (id?: string) => typeof id === 'string' && /^[0-9a-fA-F]{24}$/.test(id);
+    const pLocId = isMongoId(selectedPickupLoc?._id) ? selectedPickupLoc?._id : undefined;
+    const dLocId = isMongoId(selectedDropLoc?._id) ? selectedDropLoc?._id : undefined;
+
     try {
       const res = await api.post<{
         success: boolean;
@@ -230,19 +238,19 @@ export function UberBookingPage({
             latitude: pickupCoords.lat,
             longitude: pickupCoords.lng,
             address: pickupText || 'Kollur Sri Mookambika Temple',
-            locationId: selectedPickupLoc?._id,
+            locationId: pLocId,
           },
           dropLocation: dropText
             ? {
                 latitude: dropCoords?.lat || 13.8741,
                 longitude: dropCoords?.lng || 74.6369,
                 address: dropText,
-                locationId: selectedDropLoc?._id,
+                locationId: dLocId,
               }
             : undefined,
           vehicleCategoryId: selectedCategory?._id || categories[0]?._id,
           passengers: 1,
-          paymentOption: paymentMethod === 'CASH' ? 'CASH' : 'ONLINE',
+          paymentOption: paymentMethod === 'CASH' ? 'CASH' : 'FULL_PAYMENT',
         },
         activeToken
       );

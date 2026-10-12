@@ -179,8 +179,13 @@ export function UberSearchCard({
               key={sug._id}
               type="button"
               onClick={() => {
-                onSelectDropLocation(sug);
-                onChangeDropText(sug.name);
+                const matched = locations.find(l =>
+                  l.name.toLowerCase().includes(sug.name.split(' ')[0].toLowerCase()) ||
+                  (sug.code && l.code === sug.code)
+                );
+                const target = matched || sug;
+                onSelectDropLocation(target);
+                onChangeDropText(target.name);
                 onProceedToVehicleSelection();
               }}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-neutral-100 hover:bg-neutral-200 text-neutral-800 text-xs font-medium whitespace-nowrap border border-neutral-200 transition-colors shadow-xs active:scale-95"

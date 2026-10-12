@@ -148,6 +148,8 @@ export enum PaymentOption {
   PARTIAL_PAYMENT = 'PARTIAL_PAYMENT',
   PAY_LATER = 'PAY_LATER',
   CASH = 'CASH',
+  ONLINE = 'ONLINE',
+  PAY_AT_END = 'PAY_AT_END',
 }
 
 export enum PaymentStatus {

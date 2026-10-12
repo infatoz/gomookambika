@@ -97,36 +97,78 @@ export class BookingService {
       );
     }
 
+    const isValidObjectId = (id?: string | null): boolean =>
+      typeof id === 'string' && /^[0-9a-fA-F]{24}$/.test(id);
+
+    const { VehicleCategory } = await import('@/models/VehicleCategory');
+    let category = null;
+    if (isValidObjectId(vehicleCategoryId)) {
+      category = await VehicleCategory.findById(vehicleCategoryId);
+    }
+    if (!category) {
+      category = await VehicleCategory.findOne({
+        $or: [
+          { code: vehicleCategoryId.toUpperCase() },
+          { name: new RegExp(vehicleCategoryId, 'i') },
+        ],
+      });
+    }
+    if (!category) {
+      category = await VehicleCategory.findOne({ status: 'ACTIVE' }).sort({ sortOrder: 1 });
+    }
+    if (!category) {
+      throw errors.notFound('Vehicle Category');
+    }
+    const resolvedCategoryId = category._id;
+
+    // Sanitize locations so custom or invalid location IDs do not cause Mongoose CastError
+    const sanitizedPickupLoc = {
+      ...pickupLocation,
+      locationId: isValidObjectId(pickupLocation.locationId)
+        ? new mongoose.Types.ObjectId(pickupLocation.locationId)
+        : undefined,
+    };
+    const sanitizedDropLoc = dropLocation
+      ? {
+          ...dropLocation,
+          locationId: isValidObjectId(dropLocation.locationId)
+            ? new mongoose.Types.ObjectId(dropLocation.locationId)
+            : undefined,
+        }
+      : undefined;
+
     // Calculate fare (server-side — authoritative)
     const { fareBreakdown, appliedRuleName, appliedRuleType } = await fareService.calculateFare({
       distanceKm,
-      vehicleCategoryId,
+      vehicleCategoryId: resolvedCategoryId.toString(),
       tripType: tripType as any,
       scheduledAt: scheduledAt ?? new Date(),
-      pickupLocationId: pickupLocation.locationId,
-      dropLocationId: dropLocation?.locationId,
+      pickupLocationId: isValidObjectId(pickupLocation.locationId) ? pickupLocation.locationId : undefined,
+      dropLocationId: isValidObjectId(dropLocation?.locationId) ? dropLocation?.locationId : undefined,
     });
 
     const bookingNumber = await generateBookingNumber();
+
+    const normalizedPaymentOption = paymentOption === 'PAY_AT_END' ? 'CASH' : paymentOption;
 
     const booking = await Booking.create({
       bookingNumber,
       customerId,
       tripType,
       status: BookingStatus.CONFIRMED,
-      pickupLocation,
-      dropLocation,
+      pickupLocation: sanitizedPickupLoc,
+      dropLocation: sanitizedDropLoc,
       scheduledAt,
       passengers,
-      vehicleCategoryId,
-      originTaxiStandId: originTaxiStandId ? new mongoose.Types.ObjectId(originTaxiStandId) : undefined,
-      destinationTaxiStandId: input.destinationTaxiStandId ? new mongoose.Types.ObjectId(input.destinationTaxiStandId) : undefined,
+      vehicleCategoryId: resolvedCategoryId,
+      originTaxiStandId: originTaxiStandId && isValidObjectId(originTaxiStandId) ? new mongoose.Types.ObjectId(originTaxiStandId) : undefined,
+      destinationTaxiStandId: input.destinationTaxiStandId && isValidObjectId(input.destinationTaxiStandId) ? new mongoose.Types.ObjectId(input.destinationTaxiStandId) : undefined,
       fareSnapshot: {
         ...fareBreakdown,
         ruleName: appliedRuleName,
         ruleType: appliedRuleType,
       },
-      paymentOption,
+      paymentOption: normalizedPaymentOption,
       notes,
     });
 
