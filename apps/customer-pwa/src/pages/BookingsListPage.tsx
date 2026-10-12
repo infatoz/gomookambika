@@ -1,151 +1,265 @@
 import { useState, useEffect, useCallback } from 'react';
-import { api } from '@/lib/api';
+import { api, AuthState } from '@/lib/api';
+import { Clock, MapPin, CheckCircle2, ChevronRight, X, Phone, Car, ArrowRight, ShieldCheck, AlertCircle } from 'lucide-react';
+import { getVehicleImage } from '@/components/UberRideSelector';
 
-interface AuthState { token: string | null; }
-interface BookingsListPageProps { auth: AuthState; }
+interface BookingsListPageProps {
+  auth: AuthState;
+  onOpenLogin: () => void;
+  onSelectBooking?: (booking: Booking) => void;
+  onRebook?: (pickup: string, drop?: string) => void;
+}
 
-interface Booking {
+export interface Booking {
   _id: string;
   bookingNumber: string;
   status: string;
   tripType: string;
   pickupLocation: { address: string };
   dropLocation?: { address: string };
-  vehicleCategoryId: { name: string };
+  vehicleCategoryId?: { name: string; code?: string };
   fareSnapshot?: { total: number };
   createdAt: string;
   assignedDriverId?: { name: string; phone: string };
+  assignedVehicleId?: { registrationNumber?: string; brand?: string; vehicleModel?: string };
 }
 
-const STATUS_META: Record<string, { label: string; color: string }> = {
-  PENDING: { label: 'Pending', color: 'text-yellow-400' },
-  CONFIRMED: { label: 'Confirmed', color: 'text-blue-400' },
-  DRIVER_ASSIGNED: { label: 'Driver Assigned', color: 'text-indigo-400' },
-  EN_ROUTE: { label: 'Driver En Route', color: 'text-cyan-400' },
-  ARRIVED: { label: 'Driver Arrived', color: 'text-teal-400' },
-  TRIP_STARTED: { label: 'Trip Started', color: 'text-green-400' },
-  COMPLETED: { label: 'Completed', color: 'text-emerald-400' },
-  CANCELLED: { label: 'Cancelled', color: 'text-red-400' },
-  EXPIRED: { label: 'Expired', color: 'text-gray-400' },
+const STATUS_META: Record<string, { label: string; color: string; bg: string }> = {
+  PENDING: { label: 'Finding driver', color: 'text-amber-800', bg: 'bg-amber-50 border-amber-200' },
+  CONFIRMED: { label: 'Confirmed', color: 'text-blue-800', bg: 'bg-blue-50 border-blue-200' },
+  DRIVER_ASSIGNED: { label: 'Driver Assigned', color: 'text-indigo-800', bg: 'bg-indigo-50 border-indigo-200' },
+  EN_ROUTE: { label: 'En Route', color: 'text-cyan-800', bg: 'bg-cyan-50 border-cyan-200' },
+  ARRIVED: { label: 'Driver Arrived', color: 'text-emerald-800', bg: 'bg-emerald-50 border-emerald-200' },
+  TRIP_STARTED: { label: 'In Progress', color: 'text-emerald-800', bg: 'bg-emerald-50 border-emerald-200' },
+  COMPLETED: { label: 'Completed', color: 'text-neutral-700', bg: 'bg-neutral-100 border-neutral-200' },
+  TRIP_COMPLETED: { label: 'Completed', color: 'text-neutral-700', bg: 'bg-neutral-100 border-neutral-200' },
+  CANCELLED: { label: 'Cancelled', color: 'text-red-700', bg: 'bg-red-50 border-red-200' },
+  EXPIRED: { label: 'Expired', color: 'text-neutral-500', bg: 'bg-neutral-100 border-neutral-200' },
 };
 
-export function BookingsListPage({ auth }: BookingsListPageProps) {
+export function BookingsListPage({
+  auth,
+  onOpenLogin,
+  onRebook,
+}: BookingsListPageProps) {
   const [bookings, setBookings] = useState<Booking[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [selected, setSelected] = useState<Booking | null>(null);
 
   const fetchBookings = useCallback(async () => {
+    if (!auth.token) return;
     setLoading(true);
     try {
       const res = await api.get<{ data: Booking[] }>('/bookings?limit=30', auth);
       setBookings(res.data ?? []);
+    } catch {
+      // Ignored
     } finally {
       setLoading(false);
     }
   }, [auth]);
 
-  useEffect(() => { fetchBookings(); }, [fetchBookings]);
+  useEffect(() => {
+    fetchBookings();
+  }, [fetchBookings]);
+
+  if (!auth.token) {
+    return (
+      <div className="max-w-md mx-auto min-h-[calc(100vh-140px)] flex flex-col items-center justify-center p-6 text-center text-black">
+        <div className="w-20 h-20 rounded-full bg-neutral-100 flex items-center justify-center text-3xl mb-4">
+          📋
+        </div>
+        <h2 className="text-2xl font-bold text-neutral-900">Your Activity</h2>
+        <p className="text-sm text-neutral-500 mt-2 max-w-xs">
+          Sign in to view your ongoing rides, receipts, and past trip history.
+        </p>
+        <button
+          onClick={onOpenLogin}
+          className="mt-6 px-6 py-3.5 bg-black hover:bg-neutral-800 text-white font-bold rounded-2xl text-sm transition-all shadow-md active:scale-95"
+        >
+          Log in or Sign up
+        </button>
+      </div>
+    );
+  }
 
   const isActive = (b: Booking) =>
-    ['PENDING', 'CONFIRMED', 'DRIVER_ASSIGNED', 'EN_ROUTE', 'ARRIVED', 'TRIP_STARTED'].includes(b.status);
+    ['PENDING', 'SEARCHING_DRIVER', 'CONFIRMED', 'DRIVER_ASSIGNED', 'EN_ROUTE', 'ARRIVED', 'TRIP_STARTED'].includes(
+      b.status
+    );
 
   const active = bookings.filter(isActive);
   const past = bookings.filter(b => !isActive(b));
 
+  const formatDate = (dateStr: string) => {
+    try {
+      const d = new Date(dateStr);
+      return d.toLocaleDateString('en-IN', {
+        day: 'numeric',
+        month: 'short',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+    } catch {
+      return dateStr;
+    }
+  };
+
   return (
-    <div className="safe-area-top px-5 py-6">
-      <h1 className="text-2xl font-bold text-white mb-6">My Trips</h1>
+    <div className="max-w-2xl mx-auto px-4 py-6 text-black">
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="text-2xl md:text-3xl font-black tracking-tight text-neutral-900">
+          Activity
+        </h1>
+        <button
+          onClick={fetchBookings}
+          className="text-xs font-semibold text-neutral-500 hover:text-black transition-colors"
+        >
+          Refresh
+        </button>
+      </div>
 
       {loading ? (
         <div className="space-y-3">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="card animate-pulse h-28" />
+          {Array.from({ length: 3 }).map((_, i) => (
+            <div key={i} className="h-28 bg-neutral-100 rounded-2xl animate-pulse" />
           ))}
         </div>
       ) : bookings.length === 0 ? (
-        <div className="text-center py-16">
-          <div className="text-5xl mb-4">🚖</div>
-          <div className="text-gray-400">No trips yet</div>
+        <div className="text-center py-16 bg-white rounded-3xl border border-neutral-200 p-8 shadow-sm">
+          <div className="w-16 h-16 rounded-full bg-neutral-100 flex items-center justify-center text-3xl mx-auto mb-3">
+            🚕
+          </div>
+          <h3 className="font-bold text-lg text-neutral-900">No past activity</h3>
+          <p className="text-xs text-neutral-500 mt-1">
+            When you book a ride with Go Mookambika, your receipts and tracking will appear here.
+          </p>
         </div>
       ) : (
         <div className="space-y-6">
+          {/* Active Trips Section */}
           {active.length > 0 && (
-            <div>
-              <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3">Active</h2>
-              <div className="space-y-3">
-                {active.map(b => <BookingCard key={b._id} booking={b} onClick={() => setSelected(b)} />)}
-              </div>
+            <div className="space-y-3">
+              <h2 className="text-xs font-bold uppercase tracking-wider text-emerald-700 flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
+                <span>Active Rides</span>
+              </h2>
+
+              {active.map(b => (
+                <BookingCard
+                  key={b._id}
+                  booking={b}
+                  onClick={() => setSelected(b)}
+                  formatDate={formatDate}
+                />
+              ))}
             </div>
           )}
 
+          {/* Past Trips Section */}
           {past.length > 0 && (
-            <div>
-              <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3">Past</h2>
-              <div className="space-y-3">
-                {past.map(b => <BookingCard key={b._id} booking={b} onClick={() => setSelected(b)} />)}
-              </div>
+            <div className="space-y-3">
+              <h2 className="text-xs font-bold uppercase tracking-wider text-neutral-500">
+                Past Rides
+              </h2>
+
+              {past.map(b => (
+                <BookingCard
+                  key={b._id}
+                  booking={b}
+                  onClick={() => setSelected(b)}
+                  formatDate={formatDate}
+                />
+              ))}
             </div>
           )}
         </div>
       )}
 
-      {/* Detail Modal */}
+      {/* Detail Slide-up Modal */}
       {selected && (
-        <div className="fixed inset-0 bg-black/70 z-50 flex items-end" onClick={() => setSelected(null)}>
+        <div
+          className="fixed inset-0 bg-black/60 z-50 flex items-end justify-center p-0 md:p-4 backdrop-blur-sm"
+          onClick={() => setSelected(null)}
+        >
           <div
-            className="w-full bg-[rgb(22,26,40)] border-t border-white/10 rounded-t-3xl p-6 space-y-4 slide-up max-h-[85vh] overflow-y-auto"
+            className="w-full md:max-w-md bg-white rounded-t-3xl md:rounded-3xl p-6 space-y-4 uber-slide-up max-h-[85vh] overflow-y-auto shadow-2xl text-black"
             onClick={e => e.stopPropagation()}
           >
-            <div className="w-12 h-1.5 bg-white/20 rounded-full mx-auto mb-2" />
-
-            <div className="flex justify-between items-start">
+            <div className="flex items-center justify-between pb-3 border-b border-neutral-100">
               <div>
-                <div className="font-mono text-blue-400 text-lg">{selected.bookingNumber}</div>
-                <div className={`text-sm ${STATUS_META[selected.status]?.color ?? 'text-gray-400'}`}>
-                  {STATUS_META[selected.status]?.label ?? selected.status}
-                </div>
+                <span className="text-xs font-mono text-neutral-400">Receipt Details</span>
+                <h3 className="text-lg font-bold text-neutral-900">{selected.bookingNumber}</h3>
               </div>
-              {selected.fareSnapshot && (
-                <div className="text-green-400 font-bold text-xl">
-                  ₹{selected.fareSnapshot.total.toFixed(2)}
-                </div>
-              )}
+              <button
+                onClick={() => setSelected(null)}
+                className="w-8 h-8 rounded-full bg-neutral-100 hover:bg-neutral-200 flex items-center justify-center"
+              >
+                <X className="w-4 h-4 text-neutral-700" />
+              </button>
             </div>
 
-            <div className="space-y-3">
-              <div className="flex gap-3 text-sm">
-                <span className="text-green-400">📍</span>
-                <div><div className="text-xs text-gray-400">Pickup</div><div className="text-white">{selected.pickupLocation.address}</div></div>
+            {/* Ride Image & Category */}
+            <div className="flex items-center justify-between p-3.5 bg-neutral-50 rounded-2xl border border-neutral-200">
+              <div className="flex items-center gap-3">
+                <img
+                  src={getVehicleImage(selected.vehicleCategoryId as any)}
+                  alt="Vehicle"
+                  className="w-14 h-10 object-contain"
+                />
+                <div>
+                  <h4 className="font-bold text-sm text-neutral-900">
+                    {selected.vehicleCategoryId?.name || 'Sedan Comfort'}
+                  </h4>
+                  <p className="text-xs text-neutral-500">{formatDate(selected.createdAt)}</p>
+                </div>
               </div>
+
+              <div className="text-right">
+                <div className="font-black text-lg text-neutral-900 font-mono">
+                  ₹{Math.round(selected.fareSnapshot?.total || 300)}
+                </div>
+                <span className="text-[10px] text-neutral-400">Total Paid</span>
+              </div>
+            </div>
+
+            {/* Route Points */}
+            <div className="space-y-3 py-1 text-xs">
+              <div className="flex items-start gap-2.5">
+                <div className="w-3.5 h-3.5 rounded-full bg-black mt-0.5 shrink-0" />
+                <div>
+                  <span className="text-neutral-400 uppercase text-[10px] font-bold block">
+                    Pickup
+                  </span>
+                  <span className="font-medium text-neutral-900">{selected.pickupLocation.address}</span>
+                </div>
+              </div>
+
               {selected.dropLocation && (
-                <div className="flex gap-3 text-sm">
-                  <span className="text-red-400">🏁</span>
-                  <div><div className="text-xs text-gray-400">Drop</div><div className="text-white">{selected.dropLocation.address}</div></div>
+                <div className="flex items-start gap-2.5">
+                  <div className="w-3.5 h-3.5 rounded-sm bg-black mt-0.5 shrink-0" />
+                  <div>
+                    <span className="text-neutral-400 uppercase text-[10px] font-bold block">
+                      Destination
+                    </span>
+                    <span className="font-medium text-neutral-900">{selected.dropLocation.address}</span>
+                  </div>
                 </div>
               )}
             </div>
 
-            {selected.assignedDriverId && (
-              <div className="card">
-                <div className="text-xs text-gray-400 mb-2">Driver</div>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <div className="text-white font-medium">{selected.assignedDriverId.name}</div>
-                    <div className="text-gray-400 text-sm">{selected.assignedDriverId.phone}</div>
-                  </div>
-                  <a href={`tel:${selected.assignedDriverId.phone}`}
-                    className="bg-green-500/20 text-green-400 px-4 py-2 rounded-xl text-sm border border-green-500/30">
-                    📞 Call
-                  </a>
-                </div>
-              </div>
+            {/* Rebook CTA */}
+            {onRebook && (
+              <button
+                onClick={() => {
+                  onRebook(selected.pickupLocation.address, selected.dropLocation?.address);
+                  setSelected(null);
+                }}
+                className="w-full py-3.5 bg-black hover:bg-neutral-800 text-white font-bold rounded-2xl text-sm transition-all"
+              >
+                Rebook This Ride
+              </button>
             )}
-
-            <div className="text-xs text-gray-500">
-              {new Date(selected.createdAt).toLocaleString('en-IN', { dateStyle: 'long', timeStyle: 'short' })}
-            </div>
-
-            <button onClick={() => setSelected(null)} className="btn-secondary w-full">Close</button>
           </div>
         </div>
       )}
@@ -153,25 +267,59 @@ export function BookingsListPage({ auth }: BookingsListPageProps) {
   );
 }
 
-function BookingCard({ booking, onClick }: { booking: Booking; onClick: () => void }) {
-  const meta = STATUS_META[booking.status] ?? { label: booking.status, color: 'text-gray-400' };
+function BookingCard({
+  booking,
+  onClick,
+  formatDate,
+}: {
+  booking: Booking;
+  onClick: () => void;
+  formatDate: (s: string) => string;
+}) {
+  const meta = STATUS_META[booking.status] || {
+    label: booking.status,
+    color: 'text-neutral-700',
+    bg: 'bg-neutral-100 border-neutral-200',
+  };
+
+  const imageSrc = getVehicleImage(booking.vehicleCategoryId as any);
+
   return (
-    <div className="card cursor-pointer active:scale-[0.99] transition-all hover:border-white/15" onClick={onClick}>
-      <div className="flex justify-between items-start mb-2">
-        <span className="font-mono text-blue-400 text-sm">{booking.bookingNumber}</span>
-        <span className={`text-xs font-medium ${meta.color}`}>{meta.label}</span>
-      </div>
-      <div className="text-sm text-gray-300 truncate mb-1">
-        📍 {booking.pickupLocation.address}
-      </div>
-      {booking.dropLocation && (
-        <div className="text-sm text-gray-500 truncate">
-          🏁 {booking.dropLocation.address}
+    <div
+      onClick={onClick}
+      className="p-4 rounded-2xl bg-white border border-neutral-200 hover:border-black/30 hover:shadow-md transition-all cursor-pointer flex items-center justify-between gap-3 text-black"
+    >
+      <div className="flex items-center gap-3.5 min-w-0 flex-1">
+        <div className="w-14 h-11 flex items-center justify-center shrink-0">
+          <img src={imageSrc} alt="Vehicle" className="max-h-full max-w-full object-contain" />
         </div>
-      )}
-      <div className="flex justify-between mt-3 text-xs text-gray-500">
-        <span>{booking.vehicleCategoryId?.name}</span>
-        {booking.fareSnapshot && <span className="text-white font-medium">₹{booking.fareSnapshot.total.toFixed(2)}</span>}
+
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <h4 className="font-bold text-sm text-neutral-900 truncate">
+              {booking.dropLocation?.address || 'Kollur Temple Area'}
+            </h4>
+          </div>
+
+          <div className="text-xs text-neutral-500 truncate mt-0.5">
+            {formatDate(booking.createdAt)}
+          </div>
+
+          <div className="mt-1 flex items-center gap-2">
+            <span
+              className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${meta.bg} ${meta.color}`}
+            >
+              {meta.label}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <div className="text-right shrink-0 pl-2">
+        <div className="font-black text-sm text-neutral-900 font-mono">
+          ₹{Math.round(booking.fareSnapshot?.total || 300)}
+        </div>
+        <ChevronRight className="w-4 h-4 text-neutral-400 ml-auto mt-1" />
       </div>
     </div>
   );

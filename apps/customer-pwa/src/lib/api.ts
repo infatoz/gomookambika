@@ -1,20 +1,28 @@
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api/v1';
 
-interface AuthState {
+export interface AuthState {
   token: string | null;
+  user?: { name?: string; phone: string; email?: string } | null;
 }
 
 async function request<T = unknown>(
   method: string,
   path: string,
   body?: unknown,
-  auth?: AuthState
+  auth?: AuthState | string | null
 ): Promise<T> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
   };
-  if (auth?.token) {
-    headers['Authorization'] = `Bearer ${auth.token}`;
+
+  const token =
+    typeof auth === 'string'
+      ? auth
+      : auth?.token ||
+        (typeof localStorage !== 'undefined' ? localStorage.getItem('gm_token') : null);
+
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
   }
 
   const res = await fetch(`${API_BASE}${path}`, {
@@ -23,15 +31,32 @@ async function request<T = unknown>(
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
 
-  const data = await res.json();
+  let data: any = null;
+  const contentType = res.headers.get('content-type') || '';
+  if (contentType.includes('application/json')) {
+    data = await res.json().catch(() => null);
+  } else {
+    const text = await res.text().catch(() => '');
+    try {
+      data = JSON.parse(text);
+    } catch {
+      data = { message: text || `HTTP ${res.status}` };
+    }
+  }
+
   if (!res.ok) {
-    throw new Error(data.message ?? `HTTP ${res.status}`);
+    throw new Error(data?.message ?? data?.error ?? `HTTP ${res.status}`);
   }
   return data;
 }
 
 export const api = {
-  get: <T = unknown>(path: string, auth?: AuthState) => request<T>('GET', path, undefined, auth),
-  post: <T = unknown>(path: string, body: unknown, auth?: AuthState) => request<T>('POST', path, body, auth),
-  patch: <T = unknown>(path: string, body: unknown, auth?: AuthState) => request<T>('PATCH', path, body, auth),
+  get: <T = unknown>(path: string, auth?: AuthState | string | null) =>
+    request<T>('GET', path, undefined, auth),
+  post: <T = unknown>(path: string, body?: unknown, auth?: AuthState | string | null) =>
+    request<T>('POST', path, body, auth),
+  patch: <T = unknown>(path: string, body?: unknown, auth?: AuthState | string | null) =>
+    request<T>('PATCH', path, body, auth),
+  delete: <T = unknown>(path: string, auth?: AuthState | string | null) =>
+    request<T>('DELETE', path, undefined, auth),
 };

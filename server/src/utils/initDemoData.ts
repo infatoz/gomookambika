@@ -90,6 +90,54 @@ export async function ensureDefaultDemoData(): Promise<void> {
       logger.info('✅ Default SUV category ensured');
     }
 
+    let hatchCat = await VehicleCategory.findOne({ code: 'HATCHBACK' });
+    if (!hatchCat) {
+      await VehicleCategory.create({
+        name: 'Hatchback Mini',
+        code: 'HATCHBACK',
+        description: 'Affordable and compact AC ride for up to 4 passengers',
+        seatCapacity: 4,
+        luggageCapacity: 2,
+        ac: true,
+        fuelType: FuelType.PETROL,
+        baseFare: 200,
+        minimumKm: 5,
+        ratePerKm: 15,
+        ratePerHour: 120,
+        extraKmRate: 16,
+        extraHourRate: 140,
+        waitingChargePerMin: 1.5,
+        nightChargeMultiplier: 1.1,
+        status: Status.ACTIVE,
+        sortOrder: 0,
+      });
+      logger.info('✅ Default Hatchback category ensured');
+    }
+
+    let autoCat = await VehicleCategory.findOne({ code: 'AUTO' });
+    if (!autoCat) {
+      await VehicleCategory.create({
+        name: 'Auto Rickshaw',
+        code: 'AUTO',
+        description: 'Quick & economical 3-wheeler for local temple trips',
+        seatCapacity: 3,
+        luggageCapacity: 1,
+        ac: false,
+        fuelType: FuelType.CNG,
+        baseFare: 50,
+        minimumKm: 2,
+        ratePerKm: 12,
+        ratePerHour: 80,
+        extraKmRate: 13,
+        extraHourRate: 100,
+        waitingChargePerMin: 1,
+        nightChargeMultiplier: 1.1,
+        status: Status.ACTIVE,
+        sortOrder: -1,
+      });
+      logger.info('✅ Default Auto category ensured');
+    }
+
     // 3. Demo Driver 1 (+919876543210)
     const driverPhone = '+919876543210';
     let driverUser = await User.findOne({ phone: driverPhone });
