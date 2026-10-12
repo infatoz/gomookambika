@@ -80,7 +80,24 @@ export class QueueService {
       status: { $in: [TripStatus.DRIVER_ACCEPTED, TripStatus.DRIVER_ARRIVED, TripStatus.TRIP_STARTED, TripStatus.TRIP_IN_PROGRESS] },
     });
     if (activeTrip) {
-      throw errors.badRequest('Driver is currently on an active trip', 'DRIVER_ON_TRIP');
+      const tripAgeHours =
+        (Date.now() - new Date(activeTrip.updatedAt || activeTrip.createdAt).getTime()) /
+        (1000 * 60 * 60);
+      if (tripAgeHours > 3) {
+        logger.info(`Auto-completing stale trip ${activeTrip._id} (${tripAgeHours.toFixed(1)}h old) for driver ${driver._id}`);
+        await Trip.findByIdAndUpdate(activeTrip._id, {
+          status: TripStatus.TRIP_COMPLETED,
+          completedAt: new Date(),
+        });
+        if (activeTrip.bookingId) {
+          const { Booking } = await import('@/models/Booking');
+          await Booking.findByIdAndUpdate(activeTrip.bookingId, {
+            status: TripStatus.TRIP_COMPLETED,
+          });
+        }
+      } else {
+        throw errors.badRequest('Driver is currently on an active trip', 'DRIVER_ON_TRIP');
+      }
     }
 
     // Find vehicle assigned to this driver

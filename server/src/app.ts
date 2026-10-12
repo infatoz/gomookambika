@@ -10,6 +10,7 @@ import cookieParser from 'cookie-parser';
 import morgan from 'morgan';
 
 import { config } from '@/config/env';
+import '@/models';
 import { connectMongoDB } from '@/config/database';
 import { connectRedis } from '@/config/redis';
 import { initializeSocket } from '@/sockets';

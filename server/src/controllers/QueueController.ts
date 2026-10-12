@@ -64,6 +64,46 @@ export class QueueController {
   async getMyQueueStatus(req: Request, res: Response): Promise<void> {
     const driverId = await this.getDriverId(req.user!.userId);
 
+    // 1. Check for active trip
+    const { Trip } = await import('@/models/Trip');
+    const { Booking } = await import('@/models/Booking');
+    const { TripStatus } = await import('@gomookambika/types');
+
+    const activeTrip = await Trip.findOne({
+      $or: [{ driverId }, { driverId: req.user!.userId }],
+      status: {
+        $in: [
+          TripStatus.DRIVER_ACCEPTED,
+          TripStatus.DRIVER_ARRIVED,
+          TripStatus.TRIP_STARTED,
+          TripStatus.TRIP_IN_PROGRESS,
+        ],
+      },
+    })
+      .populate('bookingId')
+      .populate('customerId', 'name phone');
+
+    let validActiveTrip = null;
+    if (activeTrip) {
+      const tripAgeHours =
+        (Date.now() - new Date(activeTrip.updatedAt || activeTrip.createdAt).getTime()) /
+        (1000 * 60 * 60);
+      if (tripAgeHours > 3) {
+        await Trip.findByIdAndUpdate(activeTrip._id, {
+          status: TripStatus.TRIP_COMPLETED,
+          completedAt: new Date(),
+        });
+        if (activeTrip.bookingId) {
+          await Booking.findByIdAndUpdate(
+            (activeTrip.bookingId as any)._id || activeTrip.bookingId,
+            { status: TripStatus.TRIP_COMPLETED }
+          );
+        }
+      } else {
+        validActiveTrip = activeTrip;
+      }
+    }
+
     const entry = await QueueEntry.findOne({
       $or: [{ driverId }, { driverId: req.user!.userId }],
       status: { $in: [QueueEntryStatus.WAITING, QueueEntryStatus.OFFERED] },
@@ -72,7 +112,11 @@ export class QueueController {
       .populate('vehicleCategoryId', 'name code');
 
     if (!entry) {
-      res.json({ success: true, data: null, message: 'Not currently in any queue' });
+      res.json({
+        success: true,
+        data: validActiveTrip ? { activeTrip: validActiveTrip } : null,
+        message: validActiveTrip ? 'Driver is currently on active trip' : 'Not currently in any queue',
+      });
       return;
     }
 
@@ -96,7 +140,8 @@ export class QueueController {
           joinedAt: (entry as any).joinedAt,
         },
         driversAhead,
-        estimatedWaitMinutes: driversAhead * 15, // Simple estimate: 15 min per driver
+        estimatedWaitMinutes: driversAhead * 15,
+        activeTrip: validActiveTrip,
       },
     });
   }

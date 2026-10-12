@@ -226,6 +226,23 @@ export function QueuePage({ auth }: QueuePageProps) {
       } else {
         setQueueEntry(null);
       }
+
+      // Restore active trip if driver is currently assigned/on a trip
+      if (res.data?.activeTrip) {
+        const at = res.data.activeTrip;
+        setActiveTrip({
+          _id: at._id,
+          bookingId: at.bookingId?._id || at.bookingId,
+          bookingNumber: at.bookingNumber || at.bookingId?.bookingNumber || 'GM-TRIP',
+          status: at.status,
+          pickupAddress: at.pickupLocation?.address || at.pickupAddress || 'Pickup Point',
+          dropAddress: at.dropLocation?.address || at.dropAddress,
+          fare: at.finalFare?.total || at.estimatedFare || at.fare || 500,
+          customerName: at.customerId?.name || at.customerName || 'Passenger',
+          customerPhone: at.customerId?.phone || at.customerPhone,
+        });
+        setStatus('ON_TRIP');
+      }
     } catch (e: any) {
       if (e?.message?.includes('unauthorized') || e?.message?.includes('401')) {
         window.dispatchEvent(new CustomEvent('auth:unauthorized'));
@@ -317,6 +334,10 @@ export function QueuePage({ auth }: QueuePageProps) {
       setStatus('AVAILABLE');
       setQrModalOpen(false);
     } catch (e: any) {
+      if (e?.message?.toLowerCase()?.includes('active trip')) {
+        await checkMyStatus();
+        setQrModalOpen(false);
+      }
       setError(e?.message || 'Failed to join taxi stand queue');
     } finally {
       setActionLoading(false);
