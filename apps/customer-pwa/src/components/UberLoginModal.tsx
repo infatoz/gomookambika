@@ -81,9 +81,9 @@ export function UberLoginModal({
   };
 
   const fillDemoAndProceed = async () => {
-    setPhone('9876543210');
+    setPhone('9876543220');
     setError('');
-    await handleRequestOTP('9876543210');
+    await handleRequestOTP('9876543220');
   };
 
   const fillDemoOtpAndVerify = async () => {
@@ -141,7 +141,7 @@ export function UberLoginModal({
                   onClick={fillDemoAndProceed}
                   className="px-2.5 py-1 bg-black text-white hover:bg-neutral-800 text-xs font-semibold rounded-lg shadow-sm"
                 >
-                  Use 9876543210
+                  Use 9876543220
                 </button>
               </div>
 

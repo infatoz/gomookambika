@@ -38,6 +38,14 @@ function App() {
     }
   }, [auth.token, auth.user]);
 
+  useEffect(() => {
+    const handleUnauthorized = () => {
+      setAuth({ token: null, user: null });
+    };
+    window.addEventListener('auth:unauthorized', handleUnauthorized);
+    return () => window.removeEventListener('auth:unauthorized', handleUnauthorized);
+  }, []);
+
   const handleLogin = (token: string, user: { name?: string; phone: string }) => {
     setAuth({ token, user });
     localStorage.setItem('gm_token', token);

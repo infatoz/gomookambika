@@ -10,9 +10,9 @@ const router = Router();
 
 router.use(authenticate);
 
-// Customer booking routes
-router.post('/', requireRoles(UserRole.CUSTOMER), validate(createBookingSchema), bookingController.createBooking.bind(bookingController));
-router.get('/', requireRoles(UserRole.CUSTOMER), bookingController.getMyBookings.bind(bookingController));
+// Customer booking routes (all authenticated users can book and access their bookings)
+router.post('/', validate(createBookingSchema), bookingController.createBooking.bind(bookingController));
+router.get('/', bookingController.getMyBookings.bind(bookingController));
 router.get('/:id', bookingController.getBooking.bind(bookingController));
 router.post('/:id/cancel', bookingController.cancelBooking.bind(bookingController));
 

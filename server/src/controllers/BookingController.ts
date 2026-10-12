@@ -73,14 +73,23 @@ export class BookingController {
     const limit = Math.min(50, parseInt(req.query.limit as string) || 10);
     const skip = (page - 1) * limit;
 
+    const query: Record<string, any> = { customerId };
+    if (req.query.status) {
+      const statusParam = req.query.status as string;
+      const statuses = statusParam.split(',').map(s => s.trim()).filter(Boolean);
+      if (statuses.length > 0) {
+        query.status = { $in: statuses };
+      }
+    }
+
     const [bookings, total] = await Promise.all([
-      Booking.find({ customerId })
+      Booking.find(query)
         .populate('vehicleCategoryId', 'name image')
         .populate('assignedDriverId', 'name phone photo rating')
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit),
-      Booking.countDocuments({ customerId }),
+      Booking.countDocuments(query),
     ]);
 
     res.json({

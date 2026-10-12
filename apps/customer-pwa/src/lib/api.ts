@@ -44,6 +44,16 @@ async function request<T = unknown>(
     }
   }
 
+  if (res.status === 401 || res.status === 403) {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.removeItem('gm_token');
+      localStorage.removeItem('gm_user');
+    }
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('auth:unauthorized'));
+    }
+  }
+
   if (!res.ok) {
     throw new Error(data?.message ?? data?.error ?? `HTTP ${res.status}`);
   }

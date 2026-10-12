@@ -70,10 +70,10 @@ export function OTPLoginPage({ onLogin }: OTPLoginPageProps) {
                 <label className="text-sm text-gray-400">Mobile Number</label>
                 <button
                   type="button"
-                  onClick={() => { setPhone('9876543210'); setError(''); }}
+                  onClick={() => { setPhone('9876543220'); setError(''); }}
                   className="text-xs text-amber-400 hover:text-amber-300 underline font-mono"
                 >
-                  Use Demo: 9876543210
+                  Use Demo: 9876543220
                 </button>
               </div>
               <div className="flex gap-2">

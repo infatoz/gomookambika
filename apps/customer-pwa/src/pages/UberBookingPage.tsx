@@ -81,7 +81,7 @@ export function UberBookingPage({
     try {
       const res = await api.get<{ data: ActiveBookingData[] }>(
         '/bookings?status=PENDING,SEARCHING_DRIVER,DRIVER_ASSIGNED,DRIVER_ACCEPTED,DRIVER_ARRIVING,DRIVER_ARRIVED,TRIP_STARTED&limit=1',
-        auth
+        auth.token
       );
       if (res.data && res.data.length > 0) {
         setActiveBooking(res.data[0]);
