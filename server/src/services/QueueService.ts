@@ -283,6 +283,16 @@ export class QueueService {
 
     logger.info(`Driver ${driverId} joined queue at ${stand.name} (position: ${nextPosition})`);
 
+    // Asynchronously trigger check for any due scheduled bookings waiting for a queued driver
+    setImmediate(async () => {
+      try {
+        const { bookingService } = await import('./BookingService');
+        await bookingService.dispatchScheduledBookings();
+      } catch (err) {
+        logger.debug('Scheduled dispatch trigger on join queue:', err);
+      }
+    });
+
     return {
       queueEntryId: queueEntry!._id.toString(),
       taxiStandId: stand._id.toString(),

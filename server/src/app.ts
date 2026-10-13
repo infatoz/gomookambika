@@ -21,6 +21,7 @@ import { rateLimiter } from '@/middlewares/rateLimiter';
 import { logger, httpLogStream } from '@/utils/logger';
 import { setupSwagger } from '@/config/swagger';
 import { ensureDefaultDemoData } from '@/utils/initDemoData';
+import { bookingService } from '@/services/BookingService';
 
 const app = express();
 const server = http.createServer(app);
@@ -132,6 +133,9 @@ async function startServer() {
       if (config.SWAGGER_ENABLED) {
         logger.info(`   Docs: http://localhost:${config.PORT}/api-docs`);
       }
+
+      // Initialize background dispatcher for scheduled bookings
+      bookingService.initScheduledBookingDispatcher();
     });
   } catch (error) {
     logger.error('Failed to start server:', error);

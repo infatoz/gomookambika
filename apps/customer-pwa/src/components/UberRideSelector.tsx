@@ -1,4 +1,4 @@
-import { Users, Wind, ShieldCheck, Clock, CreditCard, Banknote, Sparkles, ChevronRight, Loader2, Car, Info } from 'lucide-react';
+import { Users, Wind, ShieldCheck, Clock, CreditCard, Banknote, Sparkles, ChevronRight, Loader2, Car, Info, Calendar } from 'lucide-react';
 
 export interface VehicleUnitItem {
   registrationNumber: string;
@@ -55,6 +55,9 @@ interface UberRideSelectorProps {
   paymentMethod: 'CASH' | 'ONLINE';
   onChangePaymentMethod: (method: 'CASH' | 'ONLINE') => void;
   onOpenVehiclesModal?: () => void;
+  isScheduled?: boolean;
+  scheduledLabel?: string;
+  onOpenScheduleModal?: () => void;
 }
 
 // Maps category name or code to the isometric illustration in images/ or admin uploaded image
@@ -104,6 +107,9 @@ export function UberRideSelector({
   paymentMethod,
   onChangePaymentMethod,
   onOpenVehiclesModal,
+  isScheduled = false,
+  scheduledLabel = '',
+  onOpenScheduleModal,
 }: UberRideSelectorProps) {
   // If categories are empty, fallback to default display list
   const displayCategories: VehicleCategoryItem[] =
@@ -359,18 +365,72 @@ export function UberRideSelector({
           </div>
         </div>
 
-        {/* Primary Action Button: Confirm Ride */}
-        <div className="pt-2.5">
+        {/* Schedule Trip Mode Selector */}
+        <div className="pt-2">
+          {isScheduled ? (
+            <div className="p-2.5 rounded-2xl bg-indigo-50 border border-indigo-200 flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="w-7 h-7 rounded-lg bg-indigo-600 text-white flex items-center justify-center shrink-0">
+                  <Calendar className="w-3.5 h-3.5" />
+                </div>
+                <div className="min-w-0">
+                  <div className="text-[11px] font-bold text-indigo-950 truncate">
+                    Pickup: {scheduledLabel || 'Scheduled Trip'}
+                  </div>
+                  <div className="text-[10px] text-indigo-700 truncate">
+                    Assigned to queued driver on trip start date
+                  </div>
+                </div>
+              </div>
+              {onOpenScheduleModal && (
+                <button
+                  type="button"
+                  onClick={onOpenScheduleModal}
+                  className="px-2.5 py-1 text-[11px] font-bold text-indigo-700 bg-white hover:bg-indigo-100 rounded-lg border border-indigo-300 shrink-0 transition-colors shadow-2xs"
+                >
+                  Change
+                </button>
+              )}
+            </div>
+          ) : (
+            onOpenScheduleModal && (
+              <button
+                type="button"
+                onClick={onOpenScheduleModal}
+                className="w-full py-2 px-3 rounded-xl bg-neutral-100 hover:bg-neutral-200 text-neutral-700 text-xs font-semibold border border-neutral-200 transition-colors flex items-center justify-between"
+              >
+                <div className="flex items-center gap-2">
+                  <Clock className="w-3.5 h-3.5 text-neutral-500" />
+                  <span>Pickup: <strong>Ride Now (Instant)</strong></span>
+                </div>
+                <span className="text-[11px] text-indigo-600 font-bold hover:underline">Schedule for later →</span>
+              </button>
+            )
+          )}
+        </div>
+
+        {/* Primary Action Button: Confirm or Schedule Ride */}
+        <div className="pt-1.5">
           <button
             type="button"
             onClick={onConfirmRide}
             disabled={bookingLoading || loadingEstimate}
-            className="w-full py-4 bg-black hover:bg-neutral-800 disabled:bg-neutral-300 text-white font-bold rounded-2xl text-base transition-all active:scale-[0.98] shadow-lg flex items-center justify-center gap-2"
+            className={`w-full py-4 disabled:bg-neutral-300 text-white font-bold rounded-2xl text-base transition-all active:scale-[0.98] shadow-lg flex items-center justify-center gap-2 ${
+              isScheduled ? 'bg-indigo-950 hover:bg-indigo-900' : 'bg-black hover:bg-neutral-800'
+            }`}
           >
             {bookingLoading ? (
               <>
                 <Loader2 className="w-5 h-5 animate-spin" />
                 <span>Confirming your cab...</span>
+              </>
+            ) : isScheduled ? (
+              <>
+                <Calendar className="w-5 h-5" />
+                <span>Schedule {selectedCategory?.name || 'Ride'}</span>
+                <span className="text-sm font-normal opacity-80">
+                  • ₹{selectedCategory ? getCategoryFare(selectedCategory) : (currentEstimate?.total || 350)}
+                </span>
               </>
             ) : (
               <>

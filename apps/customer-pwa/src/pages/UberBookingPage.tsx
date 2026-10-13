@@ -6,8 +6,9 @@ import { UberRideSelector, VehicleCategoryItem, FareEstimateData } from '@/compo
 import { UberTripTracking, ActiveBookingData } from '@/components/UberTripTracking';
 import { UberLoginModal } from '@/components/UberLoginModal';
 import { UberVehiclesModal } from '@/components/UberVehiclesModal';
+import { UberScheduleModal } from '@/components/UberScheduleModal';
 import { api, AuthState } from '@/lib/api';
-import { ArrowLeft, Clock, Car, Compass, AlertCircle, ChevronRight, Sparkles } from 'lucide-react';
+import { ArrowLeft, Clock, Car, Compass, AlertCircle, ChevronRight, Sparkles, Calendar } from 'lucide-react';
 
 interface UberBookingPageProps {
   auth: AuthState;
@@ -48,6 +49,41 @@ export function UberBookingPage({
 
   // Trip Type State
   const [tripType, setTripType] = useState<string>('ONE_WAY');
+
+  // Schedule Ride State
+  const [isScheduled, setIsScheduled] = useState(false);
+  const [scheduledDate, setScheduledDate] = useState(() => {
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    return tomorrow.toISOString().split('T')[0];
+  });
+  const [scheduledTime, setScheduledTime] = useState('08:30');
+  const [showScheduleModal, setShowScheduleModal] = useState(false);
+
+  const getScheduledDateTime = useCallback((): Date | null => {
+    if (!isScheduled) return null;
+    try {
+      const [y, m, d] = scheduledDate.split('-').map(Number);
+      const [hrs, mins] = scheduledTime.split(':').map(Number);
+      const dt = new Date(y, m - 1, d, hrs, mins);
+      return isNaN(dt.getTime()) ? null : dt;
+    } catch {
+      return null;
+    }
+  }, [isScheduled, scheduledDate, scheduledTime]);
+
+  const getScheduledLabel = useCallback((): string => {
+    const dt = getScheduledDateTime();
+    if (!dt) return '';
+    return dt.toLocaleString('en-IN', {
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true,
+    });
+  }, [getScheduledDateTime]);
 
   // Locations & Inputs
   const [pickupText, setPickupText] = useState('Kollur Sri Mookambika Temple');
@@ -123,7 +159,7 @@ export function UberBookingPage({
       }
 
       const res = await api.get<{ data: ActiveBookingData[] }>(
-        '/bookings?status=PENDING,SEARCHING_DRIVER,DRIVER_ASSIGNED,DRIVER_ACCEPTED,DRIVER_ARRIVING,DRIVER_ARRIVED,TRIP_STARTED,TRIP_COMPLETED&limit=1',
+        '/bookings?status=CONFIRMED,PENDING,SEARCHING_DRIVER,DRIVER_ASSIGNED,DRIVER_ACCEPTED,DRIVER_ARRIVING,DRIVER_ARRIVED,TRIP_STARTED,TRIP_COMPLETED&limit=1',
         auth.token
       );
       if (res.data && res.data.length > 0) {
@@ -250,6 +286,7 @@ export function UberBookingPage({
         dropLocationId: dLocId,
         vehicleCategoryId: cat._id,
         tripType: effectiveTripType,
+        scheduledAt: getScheduledDateTime()?.toISOString(),
       });
 
       if (res.data?.categoryEstimates) {
@@ -397,6 +434,9 @@ export function UberBookingPage({
     const pLocId = isMongoId(selectedPickupLoc?._id) ? selectedPickupLoc?._id : undefined;
     const dLocId = isMongoId(selectedDropLoc?._id) ? selectedDropLoc?._id : undefined;
 
+    const scheduledDt = getScheduledDateTime();
+    const effectiveTripType = isScheduled ? 'ADVANCE_BOOKING' : (tripType || 'ONE_WAY');
+
     try {
       const res = await api.post<{
         success: boolean;
@@ -405,6 +445,7 @@ export function UberBookingPage({
           bookingNumber: string;
           status: string;
           startOTP?: string;
+          scheduledAt?: string;
           pickupLocation: any;
           dropLocation: any;
           fareSnapshot: any;
@@ -412,7 +453,7 @@ export function UberBookingPage({
       }>(
         '/bookings',
         {
-          tripType: tripType || 'ONE_WAY',
+          tripType: effectiveTripType,
           pickupLocation: {
             latitude: pickupCoords.lat,
             longitude: pickupCoords.lng,
@@ -430,6 +471,7 @@ export function UberBookingPage({
           vehicleCategoryId: selectedCategory?._id || categories[0]?._id,
           passengers: 1,
           paymentOption: 'CASH',
+          scheduledAt: scheduledDt ? scheduledDt.toISOString() : undefined,
         },
         activeToken
       );
@@ -439,11 +481,12 @@ export function UberBookingPage({
         setActiveBooking({
           _id: newBooking._id,
           bookingNumber: newBooking.bookingNumber,
-          status: newBooking.status || 'SEARCHING_DRIVER',
+          status: newBooking.status || (isScheduled ? 'CONFIRMED' : 'SEARCHING_DRIVER'),
           pickupLocation: newBooking.pickupLocation,
           dropLocation: newBooking.dropLocation,
           fareSnapshot: newBooking.fareSnapshot,
           startOTP: newBooking.startOTP,
+          scheduledAt: newBooking.scheduledAt || (scheduledDt ? scheduledDt.toISOString() : undefined),
         });
         setViewMode('active_trip');
       }
@@ -530,6 +573,48 @@ export function UberBookingPage({
                 <div className="flex items-center gap-1 text-xs font-semibold text-neutral-500 group-hover:text-black shrink-0">
                   <span className="hidden sm:inline text-[11px]">View All</span>
                   <ChevronRight className="w-4 h-4 transition-transform group-hover:translate-x-0.5" />
+                </div>
+              </div>
+
+              {/* Pickup Time Selector (Ride Now vs Schedule Ahead) */}
+              <div
+                onClick={() => setShowScheduleModal(true)}
+                className={`flex items-center justify-between p-3 rounded-2xl border mb-3.5 cursor-pointer transition-all active:scale-[0.99] group shadow-xs ${
+                  isScheduled
+                    ? 'bg-indigo-50/90 border-indigo-200 hover:bg-indigo-100/80'
+                    : 'bg-neutral-50 hover:bg-neutral-100 border-neutral-200/90'
+                }`}
+              >
+                <div className="flex items-center gap-3 min-w-0">
+                  <div
+                    className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 shadow-sm ${
+                      isScheduled ? 'bg-indigo-600 text-white' : 'bg-black text-white'
+                    }`}
+                  >
+                    {isScheduled ? <Calendar className="w-5 h-5" /> : <Clock className="w-5 h-5" />}
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-xs md:text-sm font-bold text-neutral-900 flex items-center gap-1.5">
+                      <span>Pickup:</span>
+                      <span className={isScheduled ? 'text-indigo-800' : 'text-neutral-900 font-extrabold'}>
+                        {isScheduled ? getScheduledLabel() : 'Ride Now (Instant)'}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-neutral-500 truncate mt-0.5">
+                      {isScheduled
+                        ? 'Queued driver will be assigned on trip start date'
+                        : 'Tap to schedule ride for a later date & time'}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-1 text-xs font-semibold text-neutral-600 group-hover:text-black shrink-0">
+                  <span
+                    className={`text-[11px] px-2.5 py-1 rounded-lg border font-bold ${
+                      isScheduled ? 'bg-white text-indigo-700 border-indigo-300' : 'bg-white text-neutral-700 border-neutral-300'
+                    }`}
+                  >
+                    {isScheduled ? 'Change' : 'Schedule'}
+                  </span>
                 </div>
               </div>
 
@@ -620,6 +705,9 @@ export function UberBookingPage({
               paymentMethod={paymentMethod}
               onChangePaymentMethod={setPaymentMethod}
               onOpenVehiclesModal={() => setVehiclesModalOpen(true)}
+              isScheduled={isScheduled}
+              scheduledLabel={getScheduledLabel()}
+              onOpenScheduleModal={() => setShowScheduleModal(true)}
             />
           )}
 
@@ -732,6 +820,23 @@ export function UberBookingPage({
           setViewMode('vehicles');
           fetchFareEstimate(cat);
         }}
+      />
+
+      {/* Schedule Ride Date & Time Picker Modal */}
+      <UberScheduleModal
+        isOpen={showScheduleModal}
+        onClose={() => setShowScheduleModal(false)}
+        selectedDate={scheduledDate}
+        selectedTime={scheduledTime}
+        onSaveSchedule={(date, time) => {
+          setScheduledDate(date);
+          setScheduledTime(time);
+          setIsScheduled(true);
+        }}
+        onResetToNow={() => {
+          setIsScheduled(false);
+        }}
+        isCurrentlyScheduled={isScheduled}
       />
     </div>
   );

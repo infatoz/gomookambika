@@ -13,6 +13,7 @@ import {
   Clock,
   Car,
   ShieldCheck,
+  Calendar,
 } from 'lucide-react';
 import QRCode from 'qrcode';
 import { api } from '@/lib/api';
@@ -22,6 +23,7 @@ export interface ActiveBookingData {
   bookingNumber: string;
   status: string;
   startOTP?: string;
+  scheduledAt?: string;
   pickupLocation: { address: string };
   dropLocation?: { address: string };
   vehicleCategoryId?: { name: string; code?: string };
@@ -149,7 +151,33 @@ export function UberTripTracking({
   };
 
   const getStatusBadge = () => {
+    // If booking is scheduled for the future and driver has not yet been assigned
+    if (booking.scheduledAt && (!booking.assignedDriverId || booking.status === 'CONFIRMED')) {
+      const d = new Date(booking.scheduledAt);
+      const formatted = !isNaN(d.getTime())
+        ? d.toLocaleString('en-IN', {
+            weekday: 'short',
+            month: 'short',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: true,
+          })
+        : booking.scheduledAt;
+      return {
+        title: `Trip Scheduled • ${formatted}`,
+        subtitle: 'Driver will be assigned from taxi stand queue on trip start date',
+        color: 'bg-indigo-600',
+      };
+    }
+
     switch (booking.status) {
+      case 'CONFIRMED':
+        return {
+          title: 'Booking Confirmed',
+          subtitle: 'Dispatching driver from taxi stand queue',
+          color: 'bg-blue-500',
+        };
       case 'PENDING':
       case 'SEARCHING_DRIVER':
         return {
@@ -408,6 +436,22 @@ export function UberTripTracking({
             </div>
             <span className="text-[10px] text-slate-400">Share PIN or show QR</span>
           </div>
+
+          {/* Scheduled Trip Notice */}
+          {booking.scheduledAt && !booking.assignedDriverId && (
+            <div className="p-3.5 rounded-2xl bg-indigo-950/80 border border-indigo-500/40 text-left space-y-1">
+              <div className="flex items-center gap-2 text-indigo-300 font-bold text-xs uppercase tracking-wide">
+                <Calendar className="w-4 h-4 text-indigo-400" />
+                <span>Scheduled Ride Confirmed</span>
+              </div>
+              <div className="text-sm font-bold text-white">
+                Pickup: {new Date(booking.scheduledAt).toLocaleString('en-IN', { dateStyle: 'full', timeStyle: 'short' })}
+              </div>
+              <p className="text-[11px] text-slate-300 leading-tight">
+                Your booking is registered in advance. On the trip start date, the taxi stand queue system will automatically assign the next driver in queue to your pickup point.
+              </p>
+            </div>
+          )}
 
           {/* 6-Digit PIN Display */}
           <div className="space-y-1.5 text-center">

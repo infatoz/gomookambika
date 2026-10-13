@@ -28,6 +28,7 @@ import {
   Smartphone,
   Sparkles,
   Edit2,
+  Calendar,
 } from 'lucide-react';
 
 interface AuthState {
@@ -72,6 +73,7 @@ interface TripOffer {
   vehicleCategory?: string;
   timeoutSeconds?: number;
   expiresIn?: number;
+  scheduledAt?: string;
 }
 
 interface ActiveTrip {
@@ -261,6 +263,7 @@ export function QueuePage({ auth, onUpdateDriver }: QueuePageProps) {
         passengers: payload.passengers || 1,
         vehicleCategory: payload.vehicleCategory,
         expiresIn: payload.timeoutSeconds || 30,
+        scheduledAt: payload.scheduledAt,
       });
 
       // Play subtle browser audio ping if available
@@ -788,6 +791,20 @@ export function QueuePage({ auth, onUpdateDriver }: QueuePageProps) {
                 <span>{offerCountdown}s</span>
               </div>
             </div>
+
+            {/* Scheduled Trip Indicator */}
+            {tripOffer.scheduledAt && (
+              <div className="flex items-center gap-2 p-2.5 rounded-xl bg-indigo-500/20 border border-indigo-500/40 text-indigo-300 text-xs font-semibold">
+                <Calendar className="w-4 h-4 text-indigo-400 shrink-0" />
+                <span>
+                  Scheduled Trip •{' '}
+                  {new Date(tripOffer.scheduledAt).toLocaleString('en-IN', {
+                    dateStyle: 'medium',
+                    timeStyle: 'short',
+                  })}
+                </span>
+              </div>
+            )}
 
             {/* Fare Hero */}
             <div className="p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-between">

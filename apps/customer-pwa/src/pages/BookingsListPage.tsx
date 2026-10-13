@@ -19,6 +19,7 @@ export interface Booking {
   dropLocation?: { address: string };
   vehicleCategoryId?: { name: string; code?: string };
   fareSnapshot?: { total: number };
+  scheduledAt?: string;
   createdAt: string;
   assignedDriverId?: { name: string; phone: string };
   assignedVehicleId?: { registrationNumber?: string; brand?: string; vehicleModel?: string };
@@ -305,12 +306,17 @@ function BookingCard({
             {formatDate(booking.createdAt)}
           </div>
 
-          <div className="mt-1 flex items-center gap-2">
+          <div className="mt-1 flex items-center gap-1.5 flex-wrap">
             <span
               className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${meta.bg} ${meta.color}`}
             >
               {meta.label}
             </span>
+            {booking.scheduledAt && (
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-50 border border-indigo-200 text-indigo-700">
+                Scheduled: {formatDate(booking.scheduledAt)}
+              </span>
+            )}
           </div>
         </div>
       </div>

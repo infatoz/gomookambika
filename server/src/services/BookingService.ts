@@ -22,6 +22,7 @@ import {
   DeclinePolicy,
   SocketEvent,
   TripOfferPayload,
+  TripType,
 } from '@gomookambika/types';
 import type { IBooking } from '@/models/Booking';
 import type { ITrip } from '@/models/Trip';
@@ -45,7 +46,7 @@ export interface CreateBookingInput {
     locationId?: string;
     name?: string;
   };
-  scheduledAt?: Date;
+  scheduledAt?: Date | string;
   passengers: number;
   vehicleCategoryId: string;
   paymentOption: string;
@@ -137,12 +138,18 @@ export class BookingService {
         }
       : undefined;
 
+    const scheduledAtDate = scheduledAt ? new Date(scheduledAt) : undefined;
+    const scheduledTime = scheduledAtDate && !isNaN(scheduledAtDate.getTime()) ? scheduledAtDate.getTime() : 0;
+    // Check if this booking is scheduled in advance (> 15 minutes into the future)
+    const isFutureSchedule = Boolean(scheduledTime && (scheduledTime - Date.now() > 15 * 60 * 1000));
+    const resolvedTripType = isFutureSchedule ? TripType.ADVANCE_BOOKING : tripType;
+
     // Calculate fare (server-side — authoritative)
     const { fareBreakdown, appliedRuleName, appliedRuleType } = await fareService.calculateFare({
       distanceKm,
       vehicleCategoryId: resolvedCategoryId.toString(),
-      tripType: tripType as any,
-      scheduledAt: scheduledAt ?? new Date(),
+      tripType: resolvedTripType as any,
+      scheduledAt: scheduledAtDate ?? new Date(),
       pickupLocationId: isValidObjectId(pickupLocation.locationId) ? pickupLocation.locationId : undefined,
       dropLocationId: isValidObjectId(dropLocation?.locationId) ? dropLocation?.locationId : undefined,
     });
@@ -155,11 +162,11 @@ export class BookingService {
     const booking = await Booking.create({
       bookingNumber,
       customerId,
-      tripType,
+      tripType: resolvedTripType,
       status: BookingStatus.CONFIRMED,
       pickupLocation: sanitizedPickupLoc,
       dropLocation: sanitizedDropLoc,
-      scheduledAt,
+      scheduledAt: scheduledAtDate,
       passengers,
       vehicleCategoryId: resolvedCategoryId,
       originTaxiStandId: originTaxiStandId && isValidObjectId(originTaxiStandId) ? new mongoose.Types.ObjectId(originTaxiStandId) : undefined,
@@ -176,12 +183,32 @@ export class BookingService {
 
     logger.info(`Booking created: ${bookingNumber} for customer ${customerId}`);
 
-    // Immediately start driver search (async — don't block booking response)
-    setImmediate(() => {
-      this.searchAndDispatch(booking.id).catch(err =>
-        logger.error(`Dispatch failed for booking ${booking.id}:`, err)
+    if (isFutureSchedule) {
+      logger.info(
+        `Booking ${bookingNumber} scheduled for ${scheduledAtDate?.toISOString()}. Driver will be assigned from stand queue on trip start date.`
       );
-    });
+      const io = tryGetIO();
+      if (io) {
+        io.to(`customer:${customerId}`).emit(SocketEvent.BOOKING_STATUS_CHANGED, {
+          bookingId: booking.id,
+          status: BookingStatus.CONFIRMED,
+          scheduledAt: scheduledAtDate?.toISOString(),
+        });
+        io.to('admin:operations').emit('booking:created', {
+          bookingId: booking.id,
+          bookingNumber: booking.bookingNumber,
+          scheduledAt: scheduledAtDate?.toISOString(),
+          status: BookingStatus.CONFIRMED,
+        });
+      }
+    } else {
+      // Immediately start driver search for immediate rides (async — don't block booking response)
+      setImmediate(() => {
+        this.searchAndDispatch(booking.id).catch(err =>
+          logger.error(`Dispatch failed for booking ${booking.id}:`, err)
+        );
+      });
+    }
 
     return booking;
   }
@@ -563,6 +590,66 @@ export class BookingService {
     if (nextDriverEntry) {
       await this.offerTrip(booking, nextDriverEntry.driverId.toString(), remaining);
     }
+  }
+
+  // ─── SCHEDULED BOOKINGS DISPATCHER ──────────────────────────
+  async dispatchScheduledBookings(): Promise<void> {
+    const lookaheadMinutes = 15;
+    const cutoff = new Date(Date.now() + lookaheadMinutes * 60 * 1000);
+
+    try {
+      // Find confirmed or searching scheduled bookings whose scheduledAt is due (<= now + 15 mins)
+      // and that do not have an assigned driver yet
+      const dueBookings = await Booking.find({
+        status: { $in: [BookingStatus.CONFIRMED, BookingStatus.SEARCHING_DRIVER] },
+        scheduledAt: { $exists: true, $ne: null, $lte: cutoff },
+        assignedDriverId: { $exists: false },
+      }).sort({ scheduledAt: 1 });
+
+      if (dueBookings.length > 0) {
+        logger.info(`Found ${dueBookings.length} due scheduled booking(s) ready for queue assignment.`);
+      }
+
+      for (const booking of dueBookings) {
+        // Prevent repeated rapid-fire dispatch attempts if already currently in active offer window (< 35s)
+        if (
+          booking.status === BookingStatus.SEARCHING_DRIVER &&
+          Date.now() - new Date(booking.updatedAt).getTime() < 35 * 1000
+        ) {
+          continue;
+        }
+
+        logger.info(
+          `Assigning queued driver for scheduled booking ${booking.bookingNumber} (Trip time: ${booking.scheduledAt?.toISOString()})`
+        );
+
+        await this.searchAndDispatch(booking.id).catch(err => {
+          logger.error(`Failed to dispatch scheduled booking ${booking.bookingNumber}:`, err);
+        });
+      }
+    } catch (err) {
+      logger.error('Error querying scheduled bookings for dispatch:', err);
+    }
+  }
+
+  initScheduledBookingDispatcher(): NodeJS.Timeout {
+    logger.info('Initializing scheduled booking background dispatcher (checks every 30s)...');
+
+    // Initial check after 5 seconds
+    setTimeout(() => {
+      this.dispatchScheduledBookings().catch(err =>
+        logger.error('Initial scheduled booking dispatch check error:', err)
+      );
+    }, 5000);
+
+    // Periodic check every 30 seconds
+    const interval = setInterval(() => {
+      this.dispatchScheduledBookings().catch(err =>
+        logger.error('Periodic scheduled booking dispatch error:', err)
+      );
+    }, 30 * 1000);
+
+    return interval;
   }
 }
 

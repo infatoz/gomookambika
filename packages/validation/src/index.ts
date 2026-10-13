@@ -254,7 +254,14 @@ export const createBookingSchema = z.object({
       name: z.string().max(100).optional(),
     })
     .optional(),
-  scheduledAt: z.string().datetime({ offset: true }).optional(),
+  scheduledAt: z
+    .union([
+      z.string().datetime({ offset: true }),
+      z.string().datetime(),
+      z.string().refine(val => !val || !isNaN(Date.parse(val)), { message: 'Invalid datetime format' }),
+      z.date(),
+    ])
+    .optional(),
   passengers: z.number().int().min(1).max(20).default(1),
   vehicleCategoryId: z.string().min(1),
   paymentOption: z.nativeEnum(PaymentOption).or(z.enum(['CASH', 'ONLINE', 'FULL_PAYMENT', 'PARTIAL_PAYMENT', 'PAY_LATER', 'PAY_AT_END'])),
