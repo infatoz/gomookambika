@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { api } from '@/lib/api';
-import { Car, ShieldCheck, ArrowRight, Sparkles, AlertCircle, ArrowLeft, KeyRound } from 'lucide-react';
+import { Car, ShieldCheck, ArrowRight, AlertCircle, ArrowLeft, KeyRound } from 'lucide-react';
 
 interface OTPLoginPageProps {
   onLogin: (
@@ -121,13 +121,6 @@ export function OTPLoginPage({ onLogin }: OTPLoginPageProps) {
                 <label className="text-xs uppercase tracking-wider text-slate-400 font-bold">
                   Registered Mobile Number
                 </label>
-                <button
-                  type="button"
-                  onClick={() => { setPhone('9876543210'); setError(''); }}
-                  className="text-xs text-emerald-400 hover:text-emerald-300 font-mono font-bold underline"
-                >
-                  Demo: 9876543210
-                </button>
               </div>
               <div className="flex gap-2">
                 <div className="px-3.5 py-3 rounded-2xl bg-slate-900 border border-slate-800 text-slate-200 font-mono font-bold text-sm flex items-center shrink-0">
@@ -194,7 +187,7 @@ export function OTPLoginPage({ onLogin }: OTPLoginPageProps) {
                 inputMode="numeric"
                 maxLength={6}
                 value={otp}
-                placeholder="123456"
+                placeholder="• • • • • •"
                 onChange={e => {
                   setOtp(e.target.value.replace(/\D/g, '').slice(0, 6));
                   setError('');
@@ -203,16 +196,6 @@ export function OTPLoginPage({ onLogin }: OTPLoginPageProps) {
                 autoFocus
                 onKeyDown={e => e.key === 'Enter' && handleVerifyOTP()}
               />
-              <button
-                type="button"
-                onClick={() => { setOtp('123456'); setError(''); }}
-                className="w-full mt-2.5 text-center text-xs text-amber-300 bg-amber-950/40 border border-amber-600/40 rounded-xl py-2 px-3 flex items-center justify-center gap-1.5 hover:bg-amber-900/40 transition-all cursor-pointer font-medium"
-              >
-                <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-                <span>
-                  Demo OTP: <strong className="font-mono text-amber-400 text-sm">123456</strong> (Tap to auto-fill)
-                </span>
-              </button>
             </div>
 
             {error && (

@@ -61,9 +61,6 @@ export function UberNavbar({
               >
                 <Compass className="w-3.5 h-3.5" />
                 <span>Local Ride</span>
-                <span className="text-[10px] px-1.5 py-0.2 rounded-full font-bold bg-amber-400 text-black ml-0.5">
-                  Fixed
-                </span>
               </button>
               {onOpenVehiclesModal && (
                 <button
@@ -201,14 +198,9 @@ export function UberNavbar({
               >
                 <div className="flex items-center gap-3">
                   <Compass className="w-5 h-5" />
-                  <span>Local Ride & Fixed Rates</span>
+                  <span>Local Ride</span>
                 </div>
-                <div className="flex items-center gap-1.5">
-                  <span className="text-[10px] px-2 py-0.5 bg-amber-400 text-black font-bold rounded-full">
-                    Fixed
-                  </span>
-                  <ChevronRight className="w-4 h-4 text-neutral-400" />
-                </div>
+                <ChevronRight className="w-4 h-4 text-neutral-400" />
               </button>
 
               {onOpenVehiclesModal && (

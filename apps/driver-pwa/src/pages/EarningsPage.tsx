@@ -45,11 +45,11 @@ export function EarningsPage({ auth }: EarningsPageProps) {
     } catch {
       // Default initial metrics
       setEarnings({
-        today: 720,
-        thisWeek: 4850,
-        thisMonth: 18400,
-        totalTrips: 8,
-        avgFare: 340,
+        today: 0,
+        thisWeek: 0,
+        thisMonth: 0,
+        totalTrips: 0,
+        avgFare: 0,
         currency: 'INR',
       });
     } finally {
@@ -104,14 +104,9 @@ export function EarningsPage({ auth }: EarningsPageProps) {
 
       {/* Hero Earnings Card */}
       <div className="p-6 rounded-3xl bg-gradient-to-br from-emerald-950/60 via-slate-900 to-slate-950 border border-emerald-500/30 shadow-2xl relative overflow-hidden space-y-3">
-        <div className="flex items-center justify-between text-xs text-emerald-400 font-semibold uppercase tracking-wider">
-          <span className="flex items-center gap-1.5">
-            <TrendingUp className="w-4 h-4" />
-            <span>Net Take-Home Earnings</span>
-          </span>
-          <span className="bg-emerald-500/20 px-2 py-0.5 rounded text-[10px] text-emerald-300 border border-emerald-500/30">
-            100% Captain Share
-          </span>
+        <div className="text-xs text-emerald-400 font-semibold uppercase tracking-wider flex items-center gap-1.5">
+          <TrendingUp className="w-4 h-4" />
+          <span>Net Take-Home Earnings</span>
         </div>
 
         <div className="text-4xl font-black text-white font-mono flex items-center tracking-tight">
@@ -151,18 +146,6 @@ export function EarningsPage({ auth }: EarningsPageProps) {
           </div>
           <div className="text-[11px] text-slate-500">Per passenger ride</div>
         </div>
-      </div>
-
-      {/* Association Transparency Card */}
-      <div className="p-4 rounded-2xl bg-slate-900/40 border border-slate-800/80 space-y-2 text-xs">
-        <div className="flex items-center gap-2 text-slate-300 font-semibold">
-          <ShieldCheck className="w-4 h-4 text-emerald-400" />
-          <span>Sri Mookambika Taxi Association Guarantee</span>
-        </div>
-        <p className="text-slate-400 text-[11px] leading-relaxed">
-          All fares are standardized according to association approved rates. Zero hidden commissions.
-          All payments received in cash or UPI are retained by the captain immediately.
-        </p>
       </div>
     </div>
   );

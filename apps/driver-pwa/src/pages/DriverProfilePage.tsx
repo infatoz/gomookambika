@@ -30,6 +30,7 @@ interface AuthState {
     phone: string;
     driverCode: string;
     status: string;
+    rating?: number;
     upiId?: string;
     upiBeneficiaryName?: string;
     vehicle?: {
@@ -175,23 +176,18 @@ export function DriverProfilePage({ auth, onLogout, onUpdateDriver }: DriverProf
             </div>
             <div className="text-xs text-slate-400 font-mono mt-0.5">{d?.phone || 'Mobile'}</div>
             <div className="flex items-center gap-2 mt-1.5">
-              <span className="text-[11px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 font-semibold">
-                {d?.driverCode || 'DRV-001'}
-              </span>
-              <span className="flex items-center gap-1 text-[11px] text-amber-400 font-semibold bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20">
-                <Star className="w-3 h-3 fill-amber-400" />
-                <span>4.95</span>
-              </span>
+              {d?.driverCode && (
+                <span className="text-[11px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 font-semibold">
+                  {d.driverCode}
+                </span>
+              )}
+              {typeof d?.rating === 'number' && d.rating > 0 && (
+                <span className="flex items-center gap-1 text-[11px] text-amber-400 font-semibold bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20">
+                  <Star className="w-3 h-3 fill-amber-400" />
+                  <span>{d.rating.toFixed(1)}</span>
+                </span>
+              )}
             </div>
-          </div>
-        </div>
-
-        {/* Association Badge Bar */}
-        <div className="p-3 rounded-xl bg-slate-950/60 border border-slate-800/80 flex items-center justify-between text-xs">
-          <div className="text-slate-400">Sri Mookambika Taxi Association</div>
-          <div className="text-emerald-400 font-semibold flex items-center gap-1">
-            <ShieldCheck className="w-3.5 h-3.5" />
-            <span>Verified Captain</span>
           </div>
         </div>
       </div>

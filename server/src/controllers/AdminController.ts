@@ -66,6 +66,7 @@ export class AdminController {
       completedToday,
       cancelledToday,
       pendingPayments,
+      hourlyAgg,
     ] = await Promise.all([
       Booking.countDocuments({ createdAt: { $gte: today } }),
       Booking.aggregate([
@@ -78,7 +79,30 @@ export class AdminController {
       Trip.countDocuments({ status: TripStatus.TRIP_COMPLETED, completedAt: { $gte: today } }),
       Booking.countDocuments({ status: 'CANCELLED', createdAt: { $gte: today } }),
       Booking.countDocuments({ paymentStatus: 'PENDING', status: { $nin: ['CANCELLED', 'EXPIRED'] } }),
+      Booking.aggregate([
+        { $match: { createdAt: { $gte: today } } },
+        {
+          $group: {
+            _id: { $hour: { date: '$createdAt', timezone: '+05:30' } },
+            count: { $sum: 1 },
+          },
+        },
+      ]),
     ]);
+
+    const hourMap = new Map<number, number>();
+    (hourlyAgg as Array<{ _id: number; count: number }>).forEach(h => {
+      if (typeof h._id === 'number') {
+        hourMap.set(h._id, h.count);
+      }
+    });
+
+    const timeSlots = [6, 8, 10, 12, 14, 16, 18, 20, 22];
+    const hourlyTrend = timeSlots.map(h => {
+      const label = h === 12 ? '12pm' : h > 12 ? `${h - 12}pm` : `${h}am`;
+      const bookings = (hourMap.get(h) || 0) + (hourMap.get(h + 1) || 0);
+      return { time: label, bookings };
+    });
 
     res.json({
       success: true,
@@ -91,6 +115,7 @@ export class AdminController {
         completedToday,
         cancelledToday,
         pendingPayments,
+        hourlyTrend,
       },
     });
   }

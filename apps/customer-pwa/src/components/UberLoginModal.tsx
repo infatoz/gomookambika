@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { X, ArrowLeft, Loader2, Sparkles, ShieldCheck } from 'lucide-react';
+import { X, ArrowLeft, Loader2, ShieldCheck } from 'lucide-react';
 import { api } from '@/lib/api';
 
 interface UberLoginModalProps {
@@ -80,18 +80,6 @@ export function UberLoginModal({
     }
   };
 
-  const fillDemoAndProceed = async () => {
-    setPhone('9876543220');
-    setError('');
-    await handleRequestOTP('9876543220');
-  };
-
-  const fillDemoOtpAndVerify = async () => {
-    setOtp('123456');
-    setError('');
-    await handleVerifyOTP('123456');
-  };
-
   return (
     <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/60 backdrop-blur-sm transition-all duration-300">
       {/* Modal / Bottom Sheet Box */}
@@ -128,21 +116,6 @@ export function UberLoginModal({
               <div>
                 <h2 className="text-2xl font-bold text-neutral-900 leading-snug">{title}</h2>
                 <p className="text-sm text-neutral-500 mt-1">{subtitle}</p>
-              </div>
-
-              {/* Demo auto-fill banner */}
-              <div className="p-3 bg-neutral-50 border border-neutral-200 rounded-xl flex items-center justify-between">
-                <div className="flex items-center gap-2 text-xs text-neutral-700">
-                  <Sparkles className="w-4 h-4 text-amber-500 shrink-0" />
-                  <span>Demo Passenger test account:</span>
-                </div>
-                <button
-                  type="button"
-                  onClick={fillDemoAndProceed}
-                  className="px-2.5 py-1 bg-black text-white hover:bg-neutral-800 text-xs font-semibold rounded-lg shadow-sm"
-                >
-                  Use 9876543220
-                </button>
               </div>
 
               {/* Mobile Input */}
@@ -200,21 +173,6 @@ export function UberLoginModal({
                 <p className="text-sm text-neutral-500 mt-1">
                   Sent to <span className="font-semibold text-neutral-800">+91 {phone}</span>
                 </p>
-              </div>
-
-              {/* Demo OTP Banner */}
-              <div className="p-3 bg-neutral-50 border border-neutral-200 rounded-xl flex items-center justify-between">
-                <div className="flex items-center gap-2 text-xs text-neutral-700">
-                  <Sparkles className="w-4 h-4 text-emerald-600 shrink-0" />
-                  <span>Instant Demo OTP: <strong>123456</strong></span>
-                </div>
-                <button
-                  type="button"
-                  onClick={fillDemoOtpAndVerify}
-                  className="px-2.5 py-1 bg-black text-white hover:bg-neutral-800 text-xs font-semibold rounded-lg shadow-sm"
-                >
-                  Auto-fill 123456
-                </button>
               </div>
 
               {/* OTP Input */}

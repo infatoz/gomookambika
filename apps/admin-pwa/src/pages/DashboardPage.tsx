@@ -19,25 +19,19 @@ interface DashboardData {
   completedToday:  number;
   cancelledToday:  number;
   pendingPayments: number;
+  hourlyTrend?:    Array<{ time: string; bookings: number }>;
 }
 
-const bookingTrend = [
-  { time: '6am',  bookings: 2 },
-  { time: '8am',  bookings: 8 },
-  { time: '10am', bookings: 12 },
-  { time: '12pm', bookings: 18 },
-  { time: '2pm',  bookings: 14 },
-  { time: '4pm',  bookings: 22 },
-  { time: '6pm',  bookings: 28 },
-  { time: '8pm',  bookings: 16 },
-  { time: '10pm', bookings: 6 },
-];
-
-const statusDistribution = [
-  { name: 'Completed', value: 68, color: '#10B981' },
-  { name: 'Active',    value: 18, color: '#4F46E5' },
-  { name: 'Cancelled', value: 9,  color: '#EF4444' },
-  { name: 'Pending',   value: 5,  color: '#F59E0B' },
+const defaultHourlyTrend = [
+  { time: '6am',  bookings: 0 },
+  { time: '8am',  bookings: 0 },
+  { time: '10am', bookings: 0 },
+  { time: '12pm', bookings: 0 },
+  { time: '2pm',  bookings: 0 },
+  { time: '4pm',  bookings: 0 },
+  { time: '6pm',  bookings: 0 },
+  { time: '8pm',  bookings: 0 },
+  { time: '10pm', bookings: 0 },
 ];
 
 interface StatCardProps {
@@ -131,18 +125,44 @@ export function DashboardPage() {
     refetchInterval: 30_000,
   });
 
+  const bookingTrend = data?.hourlyTrend && data.hourlyTrend.length > 0
+    ? data.hourlyTrend
+    : defaultHourlyTrend;
+
+  const completed = data?.completedToday ?? 0;
+  const active = data?.activeTrips ?? 0;
+  const cancelled = data?.cancelledToday ?? 0;
+  const pending = data?.pendingPayments ?? 0;
+  const totalStatus = completed + active + cancelled + pending;
+
+  const statusDistribution = totalStatus > 0
+    ? [
+        { name: 'Completed', value: Math.round((completed / totalStatus) * 100), count: completed, color: '#10B981' },
+        { name: 'Active',    value: Math.round((active / totalStatus) * 100),    count: active,    color: '#4F46E5' },
+        { name: 'Cancelled', value: Math.round((cancelled / totalStatus) * 100), count: cancelled, color: '#EF4444' },
+        { name: 'Pending',   value: Math.max(0, 100 - (Math.round((completed / totalStatus) * 100) + Math.round((active / totalStatus) * 100) + Math.round((cancelled / totalStatus) * 100))), count: pending, color: '#F59E0B' },
+      ]
+    : [
+        { name: 'Completed', value: 0, count: 0, color: '#10B981' },
+        { name: 'Active',    value: 0, count: 0, color: '#4F46E5' },
+        { name: 'Cancelled', value: 0, count: 0, color: '#EF4444' },
+        { name: 'Pending',   value: 0, count: 0, color: '#F59E0B' },
+      ];
+
+  const pieChartData = totalStatus > 0
+    ? statusDistribution
+    : [{ name: 'No Activity', value: 1, count: 0, color: '#E2E8F0' }];
+
   const kpiCards: StatCardProps[] = [
     {
       icon: ListOrdered, label: "Today's Bookings",
       value: data?.todayBookings ?? 0,
       accent: '#4F46E5', accentBg: '#EEF2FF',
-      trend: { value: '+12%', up: true },
     },
     {
       icon: Banknote, label: "Today's Revenue",
-      value: `₹${((data?.todayRevenue ?? 0) / 100).toLocaleString('en-IN')}`,
+      value: `₹${Math.round(data?.todayRevenue ?? 0).toLocaleString('en-IN')}`,
       accent: '#059669', accentBg: '#ECFDF5',
-      trend: { value: '+8%', up: true },
     },
     {
       icon: Users, label: 'Active Drivers',
@@ -164,7 +184,6 @@ export function DashboardPage() {
       icon: XCircle, label: 'Cancelled Today',
       value: data?.cancelledToday ?? 0,
       accent: '#DC2626', accentBg: '#FEF2F2',
-      trend: { value: '-3%', up: false },
     },
     {
       icon: Clock, label: 'Pending Payments',
@@ -264,19 +283,18 @@ export function DashboardPage() {
           <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '1rem' }}>
             <PieChart width={180} height={180}>
               <Pie
-                data={statusDistribution}
+                data={pieChartData}
                 cx={90} cy={90}
                 innerRadius={56} outerRadius={82}
-                paddingAngle={3} dataKey="value"
+                paddingAngle={totalStatus > 0 ? 3 : 0} dataKey="value"
                 strokeWidth={0}
               >
-                {statusDistribution.map((entry, i) => (
+                {pieChartData.map((entry, i) => (
                   <Cell key={i} fill={entry.color} />
                 ))}
               </Pie>
             </PieChart>
           </div>
-
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.625rem' }}>
             {statusDistribution.map(item => (
@@ -291,8 +309,8 @@ export function DashboardPage() {
                   <div style={{ width: '60px', height: '4px', borderRadius: '999px', background: 'var(--bg-surface-3)', overflow: 'hidden' }}>
                     <div style={{ height: '100%', width: `${item.value}%`, background: item.color, borderRadius: '999px' }} />
                   </div>
-                  <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-heading)', width: '28px', textAlign: 'right' }}>
-                    {item.value}%
+                  <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-heading)', width: '38px', textAlign: 'right' }}>
+                    {item.count}
                   </span>
                 </div>
               </div>

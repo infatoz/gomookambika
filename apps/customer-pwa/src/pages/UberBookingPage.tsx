@@ -559,14 +559,11 @@ export function UberBookingPage({
                     <Car className="w-5 h-5" />
                   </div>
                   <div className="min-w-0">
-                    <div className="text-xs md:text-sm font-bold text-neutral-900 flex items-center gap-2">
-                      <span>Explore Vehicles by Type</span>
-                      <span className="text-[10px] px-2 py-0.2 bg-emerald-100 text-emerald-800 rounded-full font-semibold border border-emerald-200">
-                        Admin Fleet
-                      </span>
+                    <div className="text-xs md:text-sm font-bold text-neutral-900">
+                      Explore Vehicles by Type
                     </div>
                     <p className="text-[11px] text-neutral-500 truncate mt-0.5">
-                      Sedan, SUV, Hatchback & Auto • View models & regulated fares
+                      Sedan, SUV, Hatchback & Auto • View available models & rates
                     </p>
                   </div>
                 </div>
@@ -650,9 +647,6 @@ export function UberBookingPage({
                 >
                   <Compass className="w-3.5 h-3.5" />
                   <span>Local Ride</span>
-                  <span className="text-[9px] px-1.5 py-0.2 bg-amber-400 text-black rounded-full font-bold">
-                    Fixed
-                  </span>
                 </button>
               </div>
 
@@ -721,12 +715,6 @@ export function UberBookingPage({
               onRefresh={checkActiveBooking}
             />
           )}
-        </div>
-
-        {/* Panel Bottom Footer info */}
-        <div className="px-5 py-3 bg-neutral-50 border-t border-neutral-100 hidden md:flex items-center justify-between text-[11px] text-neutral-500">
-          <span>Kollur Temple Taxi Association</span>
-          <span>Regulated transparent fares</span>
         </div>
       </div>
 

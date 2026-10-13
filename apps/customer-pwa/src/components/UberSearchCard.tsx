@@ -166,7 +166,7 @@ export function UberSearchCard({
       {locations.length > 0 && (
         <div className="space-y-1.5">
           <div className="flex items-center justify-between text-xs font-semibold text-neutral-500 px-1">
-            <span>Admin Listed Destinations</span>
+            <span>Popular Destinations</span>
             <span className="text-[11px] text-neutral-400 font-normal">Tap to set drop</span>
           </div>
 
@@ -196,17 +196,17 @@ export function UberSearchCard({
         </div>
       )}
 
-      {/* Location Autocomplete / List (Only Admin Locations) */}
+      {/* Location Autocomplete / List */}
       <div className="space-y-1 max-h-[220px] overflow-y-auto no-scrollbar pt-1">
         {locations.length === 0 ? (
           <div className="p-4 text-center text-xs text-neutral-400 bg-neutral-50 rounded-xl border border-neutral-100">
-            Loading admin verified locations...
+            Loading destinations...
           </div>
         ) : filtered.length === 0 ? (
           <div className="p-4 text-center text-xs text-neutral-500 bg-neutral-50 rounded-xl border border-neutral-100">
-            No admin-listed location found for &ldquo;{query}&rdquo;.
+            No destination found for &ldquo;{query}&rdquo;.
             <p className="text-[11px] text-neutral-400 mt-1">
-              Only locations authorized by Go Mookambika admin are available.
+              Try searching with a different landmark or area name.
             </p>
           </div>
         ) : (
@@ -241,7 +241,7 @@ export function UberSearchCard({
                     </span>
                   </div>
                   <p className="text-[11px] text-neutral-500 truncate">
-                    {loc.address?.line1 || loc.address?.city || 'Admin Verified Location'}
+                    {loc.address?.line1 || loc.address?.city || loc.name}
                   </p>
                 </div>
               </div>

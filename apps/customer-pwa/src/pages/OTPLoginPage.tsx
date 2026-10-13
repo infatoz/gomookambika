@@ -68,13 +68,6 @@ export function OTPLoginPage({ onLogin }: OTPLoginPageProps) {
             <div>
               <div className="flex items-center justify-between mb-2">
                 <label className="text-sm text-gray-400">Mobile Number</label>
-                <button
-                  type="button"
-                  onClick={() => { setPhone('9876543220'); setError(''); }}
-                  className="text-xs text-amber-400 hover:text-amber-300 underline font-mono"
-                >
-                  Use Demo: 9876543220
-                </button>
               </div>
               <div className="flex gap-2">
                 <div className="input-field !w-auto px-3 text-white flex items-center gap-1 shrink-0">
@@ -121,20 +114,13 @@ export function OTPLoginPage({ onLogin }: OTPLoginPageProps) {
                 type="tel"
                 inputMode="numeric"
                 maxLength={6}
-                placeholder="123456"
+                placeholder="• • • • • •"
                 value={otp}
                 onChange={e => { setOtp(e.target.value.replace(/\D/g, '').slice(0, 6)); setError(''); }}
                 className="input-field text-center text-2xl tracking-widest font-mono"
                 autoFocus
                 onKeyDown={e => e.key === 'Enter' && handleVerifyOTP()}
               />
-              <button
-                type="button"
-                onClick={() => { setOtp('123456'); setError(''); }}
-                className="w-full mt-2.5 text-center text-xs text-amber-300 bg-amber-950/40 border border-amber-600/40 rounded-xl py-2 px-3 flex items-center justify-center gap-1.5 hover:bg-amber-900/40 transition-all cursor-pointer font-medium"
-              >
-                <span>Demo OTP: <strong className="font-mono text-amber-400 text-sm">123456</strong> (Tap to auto-fill)</span>
-              </button>
             </div>
 
             {error && <p className="text-red-400 text-sm text-center">{error}</p>}

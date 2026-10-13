@@ -69,16 +69,19 @@ export function UberTripTracking({
   // Customer payment choice: only UPI and CASH
   const [customerPaymentMethod, setCustomerPaymentMethod] = useState<'UPI' | 'CASH'>('UPI');
 
-  const otpCode = booking.startOTP || '123456';
+  const otpCode = booking.startOTP || '';
   const fareAmount = Math.max(1, Math.round(booking.fareSnapshot?.total || 0));
 
-  const driverName = booking.assignedDriverId?.name || 'Captain';
-  const driverPhone = booking.assignedDriverId?.phone || '+919876543210';
-  const driverUpiId = booking.assignedDriverId?.upiId || 'gomookambika@icici';
-  const driverPayeeName = booking.assignedDriverId?.upiBeneficiaryName || driverName;
+  const driverName = booking.assignedDriverId?.name || '';
+  const driverPhone = booking.assignedDriverId?.phone || '';
+  const driverUpiId = booking.assignedDriverId?.upiId || '';
+  const driverPayeeName = booking.assignedDriverId?.upiBeneficiaryName || driverName || 'Go Mookambika Captain';
 
-  const plateNumber = booking.assignedVehicleId?.registrationNumber || 'KA 20 AB 1234';
-  const vehicleName = `${booking.assignedVehicleId?.brand || 'Maruti'} ${booking.assignedVehicleId?.vehicleModel || 'Dzire'}`;
+  const plateNumber = booking.assignedVehicleId?.registrationNumber || '';
+  const vehicleName =
+    [booking.assignedVehicleId?.brand, booking.assignedVehicleId?.vehicleModel].filter(Boolean).join(' ') ||
+    booking.vehicleCategoryId?.name ||
+    'Cab';
 
   // Trip stage helpers
   const isTripCompleted = booking.status === 'TRIP_COMPLETED' || booking.status === 'COMPLETED';
@@ -87,15 +90,17 @@ export function UberTripTracking({
   const isPaid = booking.paymentStatus === 'PAID';
 
   // UPI deep link URL
-  const upiPaymentUri = `upi://pay?pa=${encodeURIComponent(driverUpiId)}&pn=${encodeURIComponent(
-    driverPayeeName
-  )}&am=${fareAmount.toFixed(2)}&cu=INR&tn=${encodeURIComponent(
-    `Go Mookambika Trip ${booking.bookingNumber}`
-  )}`;
+  const upiPaymentUri = driverUpiId
+    ? `upi://pay?pa=${encodeURIComponent(driverUpiId)}&pn=${encodeURIComponent(
+        driverPayeeName
+      )}&am=${fareAmount.toFixed(2)}&cu=INR&tn=${encodeURIComponent(
+        `Go Mookambika Trip ${booking.bookingNumber}`
+      )}`
+    : '';
 
   // Generate Start Ride QR Code (for Captain to scan & verify OTP)
   useEffect(() => {
-    if (!isPreTrip) return;
+    if (!isPreTrip || !otpCode) return;
     const payload = JSON.stringify({
       type: 'GO_MOOKAMBIKA_RIDE',
       bookingId: booking._id,
@@ -114,7 +119,7 @@ export function UberTripTracking({
 
   // Generate Dynamic Payment UPI QR Code (for Customer to scan & pay exact amount)
   useEffect(() => {
-    if (!isTripCompleted) return;
+    if (!isTripCompleted || !upiPaymentUri) return;
 
     QRCode.toDataURL(upiPaymentUri, {
       width: 280,
@@ -313,50 +318,64 @@ export function UberTripTracking({
 
               {/* UPI Tab: Dynamic Total Amount QR Code & Direct Intent */}
               {customerPaymentMethod === 'UPI' && (
-                <div className="p-4 bg-slate-950 text-white rounded-3xl border border-indigo-500/30 shadow-xl space-y-3.5 text-center">
-                  <div className="flex items-center justify-center gap-2 text-xs font-bold text-indigo-300 uppercase tracking-wider">
-                    <QrCode className="w-4 h-4" />
-                    <span>Scan & Pay via any UPI App</span>
-                  </div>
+                driverUpiId ? (
+                  <div className="p-4 bg-slate-950 text-white rounded-3xl border border-indigo-500/30 shadow-xl space-y-3.5 text-center">
+                    <div className="flex items-center justify-center gap-2 text-xs font-bold text-indigo-300 uppercase tracking-wider">
+                      <QrCode className="w-4 h-4" />
+                      <span>Scan & Pay via any UPI App</span>
+                    </div>
 
-                  {/* Dynamic Amount QR Code */}
-                  <div className="p-3 bg-white rounded-2xl inline-block mx-auto shadow-lg border-2 border-indigo-500/40">
-                    {paymentQrDataUrl ? (
-                      <img
-                        src={paymentQrDataUrl}
-                        alt="UPI Payment QR Code"
-                        className="w-48 h-48 sm:w-56 sm:h-56 object-contain"
-                      />
-                    ) : (
-                      <div className="w-48 h-48 flex items-center justify-center text-neutral-400">
-                        <Loader2 className="w-6 h-6 animate-spin text-neutral-900" />
+                    {/* Dynamic Amount QR Code */}
+                    <div className="p-3 bg-white rounded-2xl inline-block mx-auto shadow-lg border-2 border-indigo-500/40">
+                      {paymentQrDataUrl ? (
+                        <img
+                          src={paymentQrDataUrl}
+                          alt="UPI Payment QR Code"
+                          className="w-48 h-48 sm:w-56 sm:h-56 object-contain"
+                        />
+                      ) : (
+                        <div className="w-48 h-48 flex items-center justify-center text-neutral-400">
+                          <Loader2 className="w-6 h-6 animate-spin text-neutral-900" />
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="space-y-1">
+                      <div className="text-xs text-neutral-300 font-semibold">
+                        Exact amount <span className="text-emerald-400 font-mono font-bold">₹{fareAmount}</span> is encoded in QR
                       </div>
-                    )}
-                  </div>
-
-                  <div className="space-y-1">
-                    <div className="text-xs text-neutral-300 font-semibold">
-                      Exact amount <span className="text-emerald-400 font-mono font-bold">₹{fareAmount}</span> is encoded in QR
+                      <div className="text-[11px] text-neutral-400 font-mono">
+                        Pay to UPI ID: <span className="text-white font-bold">{driverUpiId}</span>
+                      </div>
                     </div>
-                    <div className="text-[11px] text-neutral-400 font-mono">
-                      Pay to UPI ID: <span className="text-white font-bold">{driverUpiId}</span>
+
+                    {/* Mobile Deep Link */}
+                    <a
+                      href={upiPaymentUri}
+                      className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-black font-extrabold text-xs flex items-center justify-center gap-2 transition-all shadow-md active:scale-95"
+                    >
+                      <Smartphone className="w-4 h-4" />
+                      <span>Pay with UPI App (GPay / PhonePe / Paytm)</span>
+                      <ExternalLink className="w-3.5 h-3.5" />
+                    </a>
+
+                    <div className="text-[10px] text-neutral-400">
+                      After paying, Captain will verify payment and conclude the ride.
                     </div>
                   </div>
-
-                  {/* Mobile Deep Link */}
-                  <a
-                    href={upiPaymentUri}
-                    className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-black font-extrabold text-xs flex items-center justify-center gap-2 transition-all shadow-md active:scale-95"
-                  >
-                    <Smartphone className="w-4 h-4" />
-                    <span>Pay with UPI App (GPay / PhonePe / Paytm)</span>
-                    <ExternalLink className="w-3.5 h-3.5" />
-                  </a>
-
-                  <div className="text-[10px] text-neutral-400">
-                    After paying, Captain will verify payment and conclude the ride.
+                ) : (
+                  <div className="p-5 bg-neutral-900 text-white rounded-3xl border border-neutral-800 text-center space-y-3">
+                    <div className="w-12 h-12 rounded-2xl bg-amber-500/20 border border-amber-500/30 flex items-center justify-center mx-auto text-amber-400">
+                      <Banknote className="w-6 h-6" />
+                    </div>
+                    <div>
+                      <h4 className="font-bold text-sm text-white">Direct Cash Settlement</h4>
+                      <p className="text-xs text-neutral-400 mt-1">
+                        Captain has not linked a personal UPI ID. Please settle ₹{fareAmount} via Cash directly to Captain.
+                      </p>
+                    </div>
                   </div>
-                </div>
+                )
               )}
 
               {/* CASH Tab: Cash handover instructions */}
@@ -507,34 +526,58 @@ export function UberTripTracking({
       )}
 
       {/* Driver & Vehicle Profile Card */}
-      <div className="p-4 rounded-2xl bg-neutral-50 border border-neutral-200 flex items-center justify-between gap-3">
-        {/* Left: Driver avatar & name */}
-        <div className="flex items-center gap-3 min-w-0 flex-1">
-          <div className="w-12 h-12 rounded-full bg-black text-white flex items-center justify-center font-bold text-lg shrink-0">
-            {driverName[0]}
+      {booking.assignedDriverId ? (
+        <div className="p-4 rounded-2xl bg-neutral-50 border border-neutral-200 flex items-center justify-between gap-3">
+          {/* Left: Driver avatar & name */}
+          <div className="flex items-center gap-3 min-w-0 flex-1">
+            <div className="w-12 h-12 rounded-full bg-black text-white flex items-center justify-center font-bold text-lg shrink-0">
+              {driverName[0]?.toUpperCase() || 'C'}
+            </div>
+            <div className="min-w-0">
+              <h4 className="font-bold text-sm text-neutral-900 truncate">{driverName}</h4>
+              <div className="flex items-center gap-1.5 text-xs text-neutral-600 mt-0.5">
+                {typeof booking.assignedDriverId.rating === 'number' && booking.assignedDriverId.rating > 0 && (
+                  <>
+                    <span className="text-amber-500 font-bold">★ {booking.assignedDriverId.rating.toFixed(1)}</span>
+                    <span>•</span>
+                  </>
+                )}
+                <span className="truncate">{vehicleName}</span>
+              </div>
+              {plateNumber && (
+                <div className="inline-block mt-1 px-2 py-0.5 bg-white border border-neutral-300 rounded font-mono font-bold text-xs text-neutral-800 tracking-wider">
+                  {plateNumber}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Right: Isometric Vehicle Illustration */}
+          <div className="w-16 h-12 shrink-0 flex items-center justify-center">
+            <img
+              src="/images/SedanComfort.png"
+              alt="Vehicle"
+              className="max-h-full max-w-full object-contain filter drop-shadow-sm"
+            />
+          </div>
+        </div>
+      ) : (
+        <div className="p-3.5 rounded-2xl bg-neutral-50 border border-neutral-200 flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center shrink-0">
+            <Clock className="w-5 h-5 animate-pulse" />
           </div>
           <div className="min-w-0">
-            <h4 className="font-bold text-sm text-neutral-900 truncate">{driverName}</h4>
-            <div className="flex items-center gap-1.5 text-xs text-neutral-600 mt-0.5">
-              <span className="text-amber-500 font-bold">★ 4.9</span>
-              <span>•</span>
-              <span className="truncate">{vehicleName}</span>
-            </div>
-            <div className="inline-block mt-1 px-2 py-0.5 bg-white border border-neutral-300 rounded font-mono font-bold text-xs text-neutral-800 tracking-wider">
-              {plateNumber}
-            </div>
+            <h4 className="font-bold text-xs text-neutral-900">
+              {booking.scheduledAt ? 'Advance Booking Confirmed' : 'Queue Assignment in Progress'}
+            </h4>
+            <p className="text-[11px] text-neutral-500">
+              {booking.scheduledAt
+                ? 'Captain will be assigned from taxi stand queue on pickup date'
+                : 'Next Captain in queue will be assigned to your ride'}
+            </p>
           </div>
         </div>
-
-        {/* Right: Isometric Vehicle Illustration */}
-        <div className="w-16 h-12 shrink-0 flex items-center justify-center">
-          <img
-            src="/images/SedanComfort.png"
-            alt="Vehicle"
-            className="max-h-full max-w-full object-contain filter drop-shadow-sm"
-          />
-        </div>
-      </div>
+      )}
 
       {/* Route Details */}
       <div className="space-y-2 py-1 text-xs">
@@ -579,13 +622,20 @@ export function UberTripTracking({
 
       {/* Action Buttons: Call Driver & Cancel (Cancel only before trip start) */}
       <div className={`grid ${isPreTrip ? 'grid-cols-2' : 'grid-cols-1'} gap-2.5 pt-1`}>
-        <a
-          href={`tel:${driverPhone}`}
-          className="py-3 bg-neutral-100 hover:bg-neutral-200 text-neutral-900 font-bold rounded-xl text-xs flex items-center justify-center gap-2 transition-colors border border-neutral-200"
-        >
-          <Phone className="w-4 h-4 text-emerald-600" />
-          <span>Call Captain</span>
-        </a>
+        {booking.assignedDriverId?.phone ? (
+          <a
+            href={`tel:${booking.assignedDriverId.phone}`}
+            className="py-3 bg-neutral-100 hover:bg-neutral-200 text-neutral-900 font-bold rounded-xl text-xs flex items-center justify-center gap-2 transition-colors border border-neutral-200"
+          >
+            <Phone className="w-4 h-4 text-emerald-600" />
+            <span>Call Captain</span>
+          </a>
+        ) : (
+          <div className="py-3 bg-neutral-100 text-neutral-400 font-semibold rounded-xl text-xs flex items-center justify-center gap-2 border border-neutral-200 select-none">
+            <Clock className="w-4 h-4 text-neutral-400" />
+            <span>Captain assigning...</span>
+          </div>
+        )}
 
         {isPreTrip && (
           <button

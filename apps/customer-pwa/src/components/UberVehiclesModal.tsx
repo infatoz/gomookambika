@@ -134,12 +134,9 @@ export function UberVehiclesModal({
               <span className="font-black text-lg md:text-xl tracking-tight text-neutral-900">
                 Platform Vehicles by Type
               </span>
-              <span className="text-[11px] px-2 py-0.5 rounded-full font-bold bg-neutral-100 text-neutral-800 border border-neutral-200">
-                {totalPlatformVehicles} Active Cabs
-              </span>
             </div>
             <p className="text-xs text-neutral-500 mt-0.5">
-              Admin-verified fleet & regulated tariffs on Go Mookambika
+              Available vehicles & transparent fares on Go Mookambika
             </p>
           </div>
 
@@ -253,9 +250,9 @@ export function UberVehiclesModal({
                       </div>
                     </div>
 
-                    {/* Regulated Rates summary */}
+                    {/* Standard Rates summary */}
                     <div className="sm:text-right shrink-0 pt-2 sm:pt-0 border-t sm:border-t-0 border-neutral-100">
-                      <div className="text-[11px] text-neutral-500">Regulated Tariff</div>
+                      <div className="text-[11px] text-neutral-500">Standard Fare</div>
                       <div className="text-sm md:text-base font-black text-neutral-900 font-mono">
                         Base ₹{cat.baseFare} • ₹{cat.ratePerKm}/km
                       </div>
@@ -328,7 +325,7 @@ export function UberVehiclesModal({
 
         {/* Footer */}
         <div className="px-6 py-3.5 bg-neutral-50 border-t border-neutral-100 flex items-center justify-between text-xs text-neutral-500">
-          <span>Kollur Sri Mookambika Temple Regulated Fleet</span>
+          <span>Go Mookambika Taxi Service</span>
           <button
             type="button"
             onClick={onClose}
