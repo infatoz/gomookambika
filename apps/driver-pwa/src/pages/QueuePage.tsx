@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import QRCode from 'qrcode';
 import { api } from '@/lib/api';
 import { QRScannerModal } from '@/components/QRScannerModal';
 import { io, Socket } from 'socket.io-client';
@@ -22,6 +23,11 @@ import {
   RefreshCw,
   Users,
   Compass,
+  Banknote,
+  Wallet,
+  Smartphone,
+  Sparkles,
+  Edit2,
 } from 'lucide-react';
 
 interface AuthState {
@@ -32,11 +38,14 @@ interface AuthState {
     status: string;
     driverCode: string;
     phone?: string;
+    upiId?: string;
+    upiBeneficiaryName?: string;
   } | null;
 }
 
 interface QueuePageProps {
   auth: AuthState;
+  onUpdateDriver?: (updated: Partial<NonNullable<AuthState['driver']>>) => void;
 }
 
 type DriverStatus = 'OFFLINE' | 'AVAILABLE' | 'ON_TRIP' | 'BREAK';
@@ -75,9 +84,10 @@ interface ActiveTrip {
   fare: number;
   customerName?: string;
   customerPhone?: string;
+  paymentMethod?: 'CASH' | 'UPI';
 }
 
-export function QueuePage({ auth }: QueuePageProps) {
+export function QueuePage({ auth, onUpdateDriver }: QueuePageProps) {
   const [status, setStatus] = useState<DriverStatus>('OFFLINE');
   const [queueEntry, setQueueEntry] = useState<QueueEntry | null>(null);
   const [tripOffer, setTripOffer] = useState<TripOffer | null>(null);
@@ -89,6 +99,92 @@ export function QueuePage({ auth }: QueuePageProps) {
   const [error, setError] = useState('');
   const [offerCountdown, setOfferCountdown] = useState(30);
   const [actionLoading, setActionLoading] = useState(false);
+
+  // ─── ONLY CASH / UPI PAYMENT COLLECTION STATES ───────────
+  const [paymentMode, setPaymentMode] = useState<'UPI' | 'CASH'>('UPI');
+  const [paymentStep, setPaymentStep] = useState<'RUNNING' | 'COLLECTING_PAYMENT' | 'COMPLETED'>('RUNNING');
+  const [dynamicUpiQr, setDynamicUpiQr] = useState<string>('');
+  const [quickUpiInput, setQuickUpiInput] = useState<string>(auth.driver?.upiId || '');
+  const [isEditingUpi, setIsEditingUpi] = useState(false);
+  const [savingQuickUpi, setSavingQuickUpi] = useState(false);
+
+  // Sync quickUpiInput with auth.driver?.upiId
+  useEffect(() => {
+    if (auth.driver?.upiId) {
+      setQuickUpiInput(auth.driver.upiId);
+    }
+  }, [auth.driver?.upiId]);
+
+  // Sync paymentStep when activeTrip changes
+  useEffect(() => {
+    if (activeTrip?.status === 'TRIP_COMPLETED') {
+      setPaymentStep('COMPLETED');
+    } else if (activeTrip?.status === 'TRIP_STARTED') {
+      if (paymentStep !== 'COLLECTING_PAYMENT') {
+        setPaymentStep('RUNNING');
+      }
+    } else {
+      setPaymentStep('RUNNING');
+    }
+  }, [activeTrip?.status]);
+
+  // Dynamic Total Amount UPI QR code generation
+  useEffect(() => {
+    if (!activeTrip) return;
+    const effectiveUpi = quickUpiInput.trim() || auth.driver?.upiId || 'gomookambika@icici';
+    const payeeName = auth.driver?.upiBeneficiaryName || auth.driver?.name || 'Go Mookambika Captain';
+    const fareAmt = Math.round(activeTrip.fare || 0);
+    const bookingNum = activeTrip.bookingNumber || 'Ride';
+    const upiUri = `upi://pay?pa=${effectiveUpi}&pn=${encodeURIComponent(payeeName)}&am=${fareAmt.toFixed(2)}&cu=INR&tn=${encodeURIComponent('Trip ' + bookingNum)}`;
+
+    QRCode.toDataURL(upiUri, {
+      width: 280,
+      margin: 1,
+      color: { dark: '#022c22', light: '#ffffff' },
+    })
+      .then(url => setDynamicUpiQr(url))
+      .catch(() => setDynamicUpiQr(''));
+  }, [activeTrip, quickUpiInput, auth.driver?.upiId, auth.driver?.upiBeneficiaryName, auth.driver?.name]);
+
+  const handleSaveQuickUpi = async () => {
+    const cleanId = quickUpiInput.trim();
+    if (!cleanId || !cleanId.includes('@')) {
+      setError('Please enter a valid UPI ID (e.g. mobile@upi, name@okhdfcbank)');
+      return;
+    }
+    setSavingQuickUpi(true);
+    try {
+      await api.patch('/drivers/upi', { upiId: cleanId }, auth.token);
+      onUpdateDriver?.({ upiId: cleanId });
+      setIsEditingUpi(false);
+      setError('');
+    } catch (err: any) {
+      setError(err?.message || 'Failed to update UPI ID');
+    } finally {
+      setSavingQuickUpi(false);
+    }
+  };
+
+  const handleFinalizeTrip = async (mode: 'CASH' | 'UPI') => {
+    if (!activeTrip || !auth.token) return;
+    setActionLoading(true);
+    try {
+      await api.post(
+        `/trips/${activeTrip._id}/complete`,
+        { paymentMethod: mode, amountPaid: activeTrip.fare },
+        auth.token
+      );
+      setPaymentMode(mode);
+      setPaymentStep('COMPLETED');
+      setActiveTrip(prev => (prev ? { ...prev, status: 'TRIP_COMPLETED', paymentMethod: mode } : null));
+    } catch {
+      setPaymentMode(mode);
+      setPaymentStep('COMPLETED');
+      setActiveTrip(prev => (prev ? { ...prev, status: 'TRIP_COMPLETED', paymentMethod: mode } : null));
+    } finally {
+      setActionLoading(false);
+    }
+  };
 
   const heartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const watchRef = useRef<number | null>(null);
@@ -868,42 +964,229 @@ export function QueuePage({ auth }: QueuePageProps) {
             </div>
           )}
 
-          {activeTrip.status === 'TRIP_STARTED' && (
+          {/* Trip Started -> Reach Destination & Choose Cash/UPI Payment */}
+          {activeTrip.status === 'TRIP_STARTED' && paymentStep === 'RUNNING' && (
             <div className="space-y-3 pt-2">
-              <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-center text-xs text-emerald-400 font-semibold">
-                Trip in progress. Drive safely to destination!
+              <div className="p-3.5 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-center space-y-1">
+                <div className="text-xs text-emerald-400 font-bold flex items-center justify-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+                  <span>Trip In Progress • Drive Safely</span>
+                </div>
+                <div className="text-xl font-mono font-black text-white">
+                  Fare: ₹{Math.round(activeTrip.fare)}
+                </div>
               </div>
 
               <button
-                onClick={handleCompleteTrip}
+                type="button"
+                onClick={() => setPaymentStep('COLLECTING_PAYMENT')}
                 disabled={actionLoading}
-                className="w-full py-4 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-sm shadow-lg transition-all active:scale-98"
+                className="w-full py-4 rounded-xl bg-gradient-to-r from-rose-600 via-rose-500 to-amber-600 hover:from-rose-500 hover:to-amber-500 text-white font-black text-sm shadow-xl shadow-rose-600/30 transition-all active:scale-98 flex items-center justify-center gap-2"
               >
-                COMPLETE TRIP & COLLECT FARE
+                <Banknote className="w-5 h-5" />
+                <span>REACHED DESTINATION • COLLECT FARE</span>
               </button>
             </div>
           )}
 
-          {activeTrip.status === 'TRIP_COMPLETED' && (
-            <div className="space-y-3 pt-2 text-center">
-              <div className="p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/40">
-                <CheckCircle2 className="w-10 h-10 text-emerald-400 mx-auto mb-1" />
-                <h4 className="text-base font-bold text-white">Trip Completed!</h4>
-                <div className="text-2xl font-black text-emerald-400 font-mono mt-1">
+          {/* ─── PAYMENT COLLECTION STEP (ONLY CASH / UPI) ────── */}
+          {activeTrip.status === 'TRIP_STARTED' && paymentStep === 'COLLECTING_PAYMENT' && (
+            <div className="space-y-4 pt-2">
+              {/* Fare Banner */}
+              <div className="p-4 rounded-2xl bg-gradient-to-br from-slate-950 to-slate-900 border border-emerald-500/40 text-center space-y-1 shadow-inner">
+                <div className="text-xs uppercase font-bold tracking-wider text-slate-400">
+                  Total Fare Amount to Collect
+                </div>
+                <div className="text-4xl font-black text-emerald-400 font-mono tracking-tight">
                   ₹{Math.round(activeTrip.fare)}
                 </div>
-                <div className="text-[11px] text-slate-400 mt-1">
-                  Collect cash or UPI payment from passenger
+                <div className="text-[11px] text-slate-400">
+                  Select payment method below: <b className="text-white">UPI QR</b> or <b className="text-white">Cash</b>
+                </div>
+              </div>
+
+              {/* Payment Mode Switcher Tabs */}
+              <div className="grid grid-cols-2 p-1 bg-slate-950 rounded-2xl border border-slate-800 gap-1">
+                <button
+                  type="button"
+                  onClick={() => setPaymentMode('UPI')}
+                  className={`py-3 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all ${
+                    paymentMode === 'UPI'
+                      ? 'bg-gradient-to-r from-emerald-500 to-teal-600 text-slate-950 shadow-md font-black'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  <QrCode className="w-4 h-4" />
+                  <span>UPI Scan & Pay</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPaymentMode('CASH')}
+                  className={`py-3 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all ${
+                    paymentMode === 'CASH'
+                      ? 'bg-gradient-to-r from-amber-500 to-yellow-600 text-slate-950 shadow-md font-black'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  <Banknote className="w-4 h-4" />
+                  <span>Collect Cash</span>
+                </button>
+              </div>
+
+              {/* TAB 1: UPI DYNAMIC QR GENERATION */}
+              {paymentMode === 'UPI' && (
+                <div className="p-4 rounded-2xl bg-slate-950 border border-emerald-500/30 text-center space-y-3.5 animate-fade-in shadow-xl">
+                  <div className="space-y-1">
+                    <div className="text-xs font-bold text-emerald-400 flex items-center justify-center gap-1.5">
+                      <Sparkles className="w-4 h-4" />
+                      <span>Scan with any UPI App</span>
+                    </div>
+                    <p className="text-[11px] text-slate-400">
+                      GPay, PhonePe, Paytm, BHIM with exact ₹{Math.round(activeTrip.fare)} encoded
+                    </p>
+                  </div>
+
+                  {/* High Contrast Dynamic QR Code */}
+                  <div className="p-3 bg-white rounded-2xl inline-block shadow-2xl border-4 border-emerald-500/40">
+                    {dynamicUpiQr ? (
+                      <img
+                        src={dynamicUpiQr}
+                        alt="Total Amount UPI QR"
+                        className="w-56 h-56 mx-auto object-contain"
+                      />
+                    ) : (
+                      <div className="w-56 h-56 flex items-center justify-center text-slate-400">
+                        Generating UPI QR...
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Payee Details & Quick UPI Edit */}
+                  <div className="p-2.5 rounded-xl bg-slate-900 border border-slate-800 text-left space-y-2">
+                    <div className="flex items-center justify-between text-xs">
+                      <div>
+                        <span className="text-slate-500 text-[10px] block">Receiving UPI ID</span>
+                        <span className="font-mono font-bold text-emerald-400 text-xs">
+                          {quickUpiInput.trim() || auth.driver?.upiId || 'gomookambika@icici'}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setIsEditingUpi(!isEditingUpi)}
+                        className="text-[11px] font-bold text-emerald-400 hover:text-emerald-300 flex items-center gap-1 px-2 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/20"
+                      >
+                        <Edit2 className="w-3 h-3" />
+                        <span>{isEditingUpi ? 'Close' : 'Change UPI'}</span>
+                      </button>
+                    </div>
+
+                    {isEditingUpi && (
+                      <div className="pt-2 border-t border-slate-800 space-y-2">
+                        <div className="text-[10px] text-slate-400">
+                          Update UPI ID for this and future payments:
+                        </div>
+                        <div className="flex gap-2">
+                          <input
+                            type="text"
+                            placeholder="yourname@okhdfcbank"
+                            value={quickUpiInput}
+                            onChange={e => setQuickUpiInput(e.target.value.trim())}
+                            className="flex-1 px-3 py-1.5 rounded-xl bg-slate-950 border border-slate-700 text-white font-mono text-xs focus:outline-none focus:border-emerald-500"
+                          />
+                          <button
+                            type="button"
+                            onClick={handleSaveQuickUpi}
+                            disabled={savingQuickUpi}
+                            className="px-3 py-1.5 rounded-xl bg-emerald-500 text-slate-950 font-bold text-xs shrink-0"
+                          >
+                            {savingQuickUpi ? 'Saving...' : 'Save'}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Finish UPI Ride Button */}
+                  <button
+                    type="button"
+                    onClick={() => handleFinalizeTrip('UPI')}
+                    disabled={actionLoading}
+                    className="w-full py-4 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-slate-950 font-black text-sm shadow-lg shadow-emerald-500/30 transition-all active:scale-95 flex items-center justify-center gap-2"
+                  >
+                    <Check className="w-5 h-5 stroke-[3]" />
+                    <span>CONFIRM UPI PAYMENT RECEIVED & FINISH RIDE</span>
+                  </button>
+                </div>
+              )}
+
+              {/* TAB 2: CASH PAYMENT */}
+              {paymentMode === 'CASH' && (
+                <div className="p-4 rounded-2xl bg-slate-950 border border-amber-500/30 text-center space-y-4 animate-fade-in shadow-xl">
+                  <div className="w-16 h-16 rounded-2xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400 mx-auto">
+                    <Banknote className="w-9 h-9" />
+                  </div>
+
+                  <div className="space-y-1">
+                    <div className="text-xs font-bold text-amber-400 uppercase tracking-wider">
+                      Collect Cash from Passenger
+                    </div>
+                    <div className="text-3xl font-black text-white font-mono">
+                      ₹{Math.round(activeTrip.fare)}
+                    </div>
+                    <p className="text-xs text-slate-400 max-w-xs mx-auto">
+                      Please collect the exact cash amount from passenger before completing the trip.
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => handleFinalizeTrip('CASH')}
+                    disabled={actionLoading}
+                    className="w-full py-4 rounded-xl bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-slate-950 font-black text-sm shadow-lg shadow-amber-500/30 transition-all active:scale-95 flex items-center justify-center gap-2"
+                  >
+                    <Check className="w-5 h-5 stroke-[3]" />
+                    <span>COLLECT CASH ₹{Math.round(activeTrip.fare)} & FINISH RIDE</span>
+                  </button>
+                </div>
+              )}
+
+              <button
+                type="button"
+                onClick={() => setPaymentStep('RUNNING')}
+                className="w-full py-2.5 text-xs text-slate-500 hover:text-slate-300 transition-colors"
+              >
+                ← Back to Navigation View
+              </button>
+            </div>
+          )}
+
+          {/* ─── TRIP COMPLETED RECEIPT VIEW ─────────────────── */}
+          {(activeTrip.status === 'TRIP_COMPLETED' || paymentStep === 'COMPLETED') && (
+            <div className="space-y-3 pt-2 text-center">
+              <div className="p-5 rounded-3xl bg-emerald-500/10 border border-emerald-500/40 space-y-2">
+                <CheckCircle2 className="w-12 h-12 text-emerald-400 mx-auto" />
+                <h4 className="text-lg font-bold text-white">Ride Completed & Settled!</h4>
+                <div className="text-3xl font-black text-emerald-400 font-mono">
+                  ₹{Math.round(activeTrip.fare)}
+                </div>
+                <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-slate-900 border border-emerald-500/30 text-emerald-400">
+                  {paymentMode === 'UPI' ? <QrCode className="w-3.5 h-3.5" /> : <Banknote className="w-3.5 h-3.5" />}
+                  <span>{paymentMode === 'UPI' ? 'Paid via UPI Scan & Pay' : 'Paid in Cash'}</span>
+                </div>
+                <div className="text-xs text-slate-400 pt-1">
+                  Trip #{activeTrip.bookingNumber} • Fare added to your earnings
                 </div>
               </div>
 
               <button
+                type="button"
                 onClick={() => {
                   setActiveTrip(null);
                   setStatus('AVAILABLE');
+                  setPaymentStep('RUNNING');
                   checkMyStatus();
                 }}
-                className="w-full py-3.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-sm transition-all"
+                className="w-full py-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-sm transition-all shadow-md active:scale-95"
               >
                 Back to Available Queue
               </button>

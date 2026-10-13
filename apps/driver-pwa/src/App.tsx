@@ -14,6 +14,8 @@ export interface DriverInfo {
   phone: string;
   status: string;
   driverCode: string;
+  upiId?: string;
+  upiBeneficiaryName?: string;
   vehicle?: {
     registrationNumber?: string;
     brand?: string;
@@ -60,6 +62,15 @@ function App() {
     setPage('queue');
   }, []);
 
+  const handleUpdateDriver = useCallback((updated: Partial<DriverInfo>) => {
+    setAuth(prev => {
+      if (!prev.driver) return prev;
+      const merged = { ...prev.driver, ...updated };
+      localStorage.setItem('gm_driver', JSON.stringify(merged));
+      return { ...prev, driver: merged };
+    });
+  }, []);
+
   if (!auth.token) {
     return <OTPLoginPage onLogin={handleLogin} />;
   }
@@ -75,10 +86,10 @@ function App() {
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col justify-between selection:bg-emerald-500 selection:text-white font-sans antialiased">
       {/* Mobile-constrained app shell */}
       <main className="w-full max-w-md mx-auto flex-1 pb-24 relative overflow-x-hidden">
-        {page === 'queue' && <QueuePage auth={auth} />}
+        {page === 'queue' && <QueuePage auth={auth} onUpdateDriver={handleUpdateDriver} />}
         {page === 'trips' && <TripPage auth={auth} />}
         {page === 'earnings' && <EarningsPage auth={auth} />}
-        {page === 'profile' && <DriverProfilePage auth={auth} onLogout={handleLogout} />}
+        {page === 'profile' && <DriverProfilePage auth={auth} onLogout={handleLogout} onUpdateDriver={handleUpdateDriver} />}
       </main>
 
       {/* Uber / Namma Yatri style Native Mobile Bottom Bar */}

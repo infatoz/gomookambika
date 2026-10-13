@@ -111,24 +111,42 @@ export function UberBookingPage({
   const checkActiveBooking = useCallback(async () => {
     if (!auth.token) return;
     try {
+      if (activeBooking?._id) {
+        const res = await api.get<{ data: ActiveBookingData }>(
+          `/bookings/${activeBooking._id}`,
+          auth.token
+        );
+        if (res.data) {
+          setActiveBooking(res.data);
+          return;
+        }
+      }
+
       const res = await api.get<{ data: ActiveBookingData[] }>(
-        '/bookings?status=PENDING,SEARCHING_DRIVER,DRIVER_ASSIGNED,DRIVER_ACCEPTED,DRIVER_ARRIVING,DRIVER_ARRIVED,TRIP_STARTED&limit=1',
+        '/bookings?status=PENDING,SEARCHING_DRIVER,DRIVER_ASSIGNED,DRIVER_ACCEPTED,DRIVER_ARRIVING,DRIVER_ARRIVED,TRIP_STARTED,TRIP_COMPLETED&limit=1',
         auth.token
       );
       if (res.data && res.data.length > 0) {
-        setActiveBooking(res.data[0]);
-        setViewMode('active_trip');
+        const b = res.data[0];
+        // If it's TRIP_COMPLETED, only auto-show if not paid yet
+        if (b.status === 'TRIP_COMPLETED' && b.paymentStatus === 'PAID') {
+          // Already paid, do not intercept home screen
+        } else {
+          setActiveBooking(b);
+          setViewMode('active_trip');
+        }
       }
     } catch {
       // Ignored
     }
-  }, [auth.token]);
+  }, [auth.token, activeBooking?._id]);
 
   useEffect(() => {
     checkActiveBooking();
-    const timer = setInterval(checkActiveBooking, 10000);
+    const pollInterval = viewMode === 'active_trip' ? 4000 : 10000;
+    const timer = setInterval(checkActiveBooking, pollInterval);
     return () => clearInterval(timer);
-  }, [checkActiveBooking]);
+  }, [checkActiveBooking, viewMode]);
 
   // Coordinates resolution
   const getCoordinates = () => {

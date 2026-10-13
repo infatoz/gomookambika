@@ -147,4 +147,59 @@ router.get('/earnings', async (req, res) => {
   });
 });
 
+// GET /api/v1/drivers/upi - Get driver UPI details
+router.get('/upi', async (req, res) => {
+  const driver = await Driver.findOne({
+    $or: [{ userId: req.user!.userId }, { _id: req.user!.userId }],
+  });
+  if (!driver) {
+    res.status(404).json({ success: false, message: 'Driver not found' });
+    return;
+  }
+  res.json({
+    success: true,
+    data: {
+      upiId: driver.upiId || '',
+      upiBeneficiaryName: driver.upiBeneficiaryName || driver.name || '',
+    },
+  });
+});
+
+// PATCH /api/v1/drivers/upi - Update driver UPI details
+router.patch('/upi', async (req, res) => {
+  const { upiId, upiBeneficiaryName } = req.body;
+  if (!upiId || typeof upiId !== 'string') {
+    res.status(400).json({ success: false, message: 'Please provide a valid UPI ID (e.g. name@okhdfcbank)' });
+    return;
+  }
+  const cleanUpi = upiId.trim();
+  if (!cleanUpi.includes('@') || cleanUpi.length < 5) {
+    res.status(400).json({ success: false, message: 'Invalid UPI ID format. Must include @ (e.g. mobile@upi, name@okhdfcbank)' });
+    return;
+  }
+
+  const driver = await Driver.findOneAndUpdate(
+    { $or: [{ userId: req.user!.userId }, { _id: req.user!.userId }] },
+    {
+      upiId: cleanUpi,
+      upiBeneficiaryName: upiBeneficiaryName ? String(upiBeneficiaryName).trim() : undefined,
+    },
+    { new: true }
+  );
+
+  if (!driver) {
+    res.status(404).json({ success: false, message: 'Driver not found' });
+    return;
+  }
+
+  res.json({
+    success: true,
+    message: 'UPI payment details updated successfully',
+    data: {
+      upiId: driver.upiId,
+      upiBeneficiaryName: driver.upiBeneficiaryName || driver.name,
+    },
+  });
+});
+
 export default router;

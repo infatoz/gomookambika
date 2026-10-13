@@ -38,6 +38,8 @@ export interface IDriver extends Document {
   lastSeen?: Date;
   activeQueueEntryId?: Types.ObjectId;
   activeTripId?: Types.ObjectId;
+  upiId?: string;
+  upiBeneficiaryName?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -110,6 +112,8 @@ const driverSchema = new Schema<IDriver>(
     lastSeen: Date,
     activeQueueEntryId: { type: Schema.Types.ObjectId, ref: 'QueueEntry' },
     activeTripId: { type: Schema.Types.ObjectId, ref: 'Trip' },
+    upiId: { type: String, trim: true },
+    upiBeneficiaryName: { type: String, trim: true },
   },
   { timestamps: true }
 );

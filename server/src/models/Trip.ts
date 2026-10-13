@@ -36,6 +36,9 @@ export interface ITrip extends Document {
   customerRating?: number;
   customerRatingComment?: string;
   routePolyline?: string; // Encoded polyline for map display
+  paymentMethod?: 'CASH' | 'UPI';
+  paymentStatus?: 'PENDING' | 'PAID';
+  paidAmount?: number;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -104,6 +107,9 @@ const tripSchema = new Schema<ITrip>(
     customerRating: { type: Number, min: 1, max: 5 },
     customerRatingComment: String,
     routePolyline: String,
+    paymentMethod: { type: String, enum: ['CASH', 'UPI'] },
+    paymentStatus: { type: String, enum: ['PENDING', 'PAID'], default: 'PENDING' },
+    paidAmount: Number,
   },
   { timestamps: true }
 );

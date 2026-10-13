@@ -123,7 +123,8 @@ export class BookingController {
     const [bookings, total] = await Promise.all([
       Booking.find(query)
         .populate('vehicleCategoryId', 'name image')
-        .populate('assignedDriverId', 'name phone photo rating')
+        .populate('assignedDriverId', 'name phone photo rating upiId upiBeneficiaryName')
+        .populate('assignedVehicleId', 'registrationNumber brand vehicleModel color')
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit),
@@ -144,7 +145,8 @@ export class BookingController {
       customerId: req.user!.userId,
     })
       .populate('vehicleCategoryId', 'name image seatCapacity')
-      .populate('assignedDriverId', 'name phone photo rating');
+      .populate('assignedDriverId', 'name phone photo rating upiId upiBeneficiaryName')
+      .populate('assignedVehicleId', 'registrationNumber brand vehicleModel color');
 
     if (!booking) throw errors.notFound('Booking');
     res.json({ success: true, data: booking });
@@ -324,7 +326,7 @@ export class TripController {
 
   // POST /api/v1/trips/:id/complete
   async completeTrip(req: Request, res: Response): Promise<void> {
-    const { actualDistanceKm, actualDurationMinutes } = req.body;
+    const { actualDistanceKm, actualDurationMinutes, paymentMethod = 'CASH', amountPaid } = req.body;
     const driverId = await this.getDriverId(req.user!.userId);
     const trip = await Trip.findOne({
       _id: req.params.id,
@@ -333,29 +335,41 @@ export class TripController {
     });
     if (!trip) throw errors.notFound('Trip');
 
+    const validPaymentMethod = paymentMethod === 'UPI' ? 'UPI' : 'CASH';
+
     trip.status = 'TRIP_COMPLETED' as any;
     trip.completedAt = new Date();
     trip.actualDistanceKm = actualDistanceKm;
     trip.actualDurationMinutes = actualDurationMinutes;
+    trip.paymentMethod = validPaymentMethod;
+    trip.paymentStatus = 'PAID';
+    const finalAmount = amountPaid || trip.finalFare?.total || 0;
+    trip.paidAmount = finalAmount;
     await trip.save();
 
-    await Booking.findByIdAndUpdate(trip.bookingId, { status: 'TRIP_COMPLETED' });
+    await Booking.findByIdAndUpdate(trip.bookingId, {
+      status: 'TRIP_COMPLETED',
+      paymentStatus: 'PAID',
+      paymentOption: validPaymentMethod,
+    });
 
     // Update driver
     const { Driver } = await import('@/models/Driver');
     await Driver.findByIdAndUpdate(trip.driverId, {
       status: 'AVAILABLE',
       activeTripId: null,
-      $inc: { totalTrips: 1 },
+      $inc: { totalTrips: 1, totalEarnings: finalAmount },
     });
 
     const { getIO } = await import('@/sockets');
     getIO().to(`customer:${trip.customerId}`).emit('trip:status:changed', {
       tripId: trip.id,
       status: 'TRIP_COMPLETED',
+      paymentMethod: validPaymentMethod,
+      amountPaid: finalAmount,
     });
 
-    res.json({ success: true, message: 'Trip completed', data: trip });
+    res.json({ success: true, message: 'Trip completed successfully', data: trip });
   }
 
   // POST /api/v1/trips/:id/rate
