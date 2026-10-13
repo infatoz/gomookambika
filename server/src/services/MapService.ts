@@ -11,6 +11,7 @@ export interface RouteResult {
   distanceKm: number;
   durationMinutes: number;
   polyline?: string; // Encoded polyline for map rendering
+  coordinates?: [number, number][]; // [lat, lng] coordinates for OpenStreetMap Leaflet
 }
 
 export interface GeocodingResult {
@@ -32,8 +33,8 @@ export interface PlaceResult {
 
 /**
  * MapService — provider abstraction for all geo operations.
- * Currently implements Nominatim (geocoding) + OSRM (routing).
- * Replace implementations here to switch providers without touching other code.
+ * Implements OpenStreetMap (Nominatim for geocoding + OSRM for routing).
+ * No Google Maps API required.
  */
 export class MapService {
   private nominatimClient: AxiosInstance;
@@ -118,7 +119,7 @@ export class MapService {
     }
   }
 
-  // ─── ROUTING ─────────────────────────────────────────────────
+  // ─── ROUTING (OSRM) ──────────────────────────────────────────
 
   async route(from: Coordinates, to: Coordinates): Promise<RouteResult | null> {
     try {
@@ -126,8 +127,8 @@ export class MapService {
 
       const response = await this.osrmClient.get(url, {
         params: {
-          overview: 'simplified',
-          geometries: 'polyline',
+          overview: 'full',
+          geometries: 'geojson',
           steps: false,
         },
       });
@@ -138,10 +139,17 @@ export class MapService {
       }
 
       const route = response.data.routes[0];
+      const coordinates: [number, number][] = Array.isArray(route.geometry?.coordinates)
+        ? route.geometry.coordinates.map(([lng, lat]: [number, number]) => [lat, lng])
+        : [
+            [from.latitude, from.longitude],
+            [to.latitude, to.longitude],
+          ];
+
       return {
         distanceKm: Math.round((route.distance / 1000) * 100) / 100,
         durationMinutes: Math.ceil(route.duration / 60),
-        polyline: route.geometry,
+        coordinates,
       };
     } catch (error) {
       logger.error('Routing failed:', error);

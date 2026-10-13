@@ -16,6 +16,7 @@ import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { toast } from '@/components/Toast';
 import { Drawer } from '@/components/Drawer';
 import { Field, FormGrid, FormSection } from '@/components/Modal';
+import { OsmLocationPicker } from '@/components/OsmLocationPicker';
 import { useOsmSearch, parseOsmAddress, type OsmResult } from '@/hooks/useOsmSearch';
 
 const { Title, Text } = Typography;
@@ -744,7 +745,7 @@ export function LocationsPage() {
             </FormGrid>
           </FormSection>
 
-          <FormSection title="GPS Coordinates">
+          <FormSection title="GPS Coordinates & OpenStreetMap">
             <FormGrid cols={2}>
               <Field label="Latitude" hint="e.g. 13.8617">
                 <input type="number" step="any" className="input-field" placeholder="13.8617" value={form.latitude} onChange={e => sf('latitude', e.target.value)} />
@@ -753,13 +754,26 @@ export function LocationsPage() {
                 <input type="number" step="any" className="input-field" placeholder="74.8100" value={form.longitude} onChange={e => sf('longitude', e.target.value)} />
               </Field>
             </FormGrid>
+
+            {/* Interactive OpenStreetMap preview & click-to-pick */}
+            <OsmLocationPicker
+              latitude={form.latitude}
+              longitude={form.longitude}
+              radiusMeters={form.queueRadius}
+              onChangeCoords={(lat, lng) => {
+                sf('latitude', lat.toString());
+                sf('longitude', lng.toString());
+              }}
+              height="220px"
+            />
+
             {form.latitude && form.longitude && (
               <a
                 href={`https://www.openstreetmap.org/?mlat=${form.latitude}&mlon=${form.longitude}#map=16/${form.latitude}/${form.longitude}`}
                 target="_blank" rel="noreferrer"
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, color: '#4F46E5', textDecoration: 'none', marginTop: 4 }}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, color: '#4F46E5', textDecoration: 'none', marginTop: 6 }}
               >
-                <CompassOutlined /> Preview on OpenStreetMap
+                <CompassOutlined /> Open on OpenStreetMap.org ↗
               </a>
             )}
           </FormSection>

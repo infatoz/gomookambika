@@ -647,9 +647,63 @@ export function UberBookingPage({
         <UberMap
           pickupCoords={pickupCoords}
           dropCoords={dropCoords}
+          pickupLocation={
+            selectedPickupLoc
+              ? {
+                  name: selectedPickupLoc.name,
+                  address: selectedPickupLoc.address?.city,
+                  lat: pickupCoords.lat,
+                  lng: pickupCoords.lng,
+                }
+              : {
+                  name: pickupText,
+                  lat: pickupCoords.lat,
+                  lng: pickupCoords.lng,
+                }
+          }
+          dropLocation={
+            dropText && dropCoords
+              ? {
+                  name: selectedDropLoc?.name || dropText,
+                  address: selectedDropLoc?.address?.city,
+                  lat: dropCoords.lat,
+                  lng: dropCoords.lng,
+                }
+              : null
+          }
+          adminLocations={locations}
           onSelectCoords={coords => {
             if (!dropText) {
               setDropText(`Lat: ${coords.lat.toFixed(4)}, Lng: ${coords.lng.toFixed(4)}`);
+            }
+          }}
+          onSelectLocation={(loc, type) => {
+            if (type === 'pickup') {
+              const matched = locations.find(l => l._id === loc._id);
+              if (matched) {
+                setSelectedPickupLoc(matched);
+                setPickupText(matched.name);
+              } else {
+                setSelectedPickupLoc({
+                  _id: loc._id || '',
+                  name: loc.name,
+                  geoPoint: { coordinates: [loc.lng, loc.lat] },
+                });
+                setPickupText(loc.name);
+              }
+            } else {
+              const matched = locations.find(l => l._id === loc._id);
+              if (matched) {
+                setSelectedDropLoc(matched);
+                setDropText(matched.name);
+              } else {
+                setSelectedDropLoc({
+                  _id: loc._id || '',
+                  name: loc.name,
+                  geoPoint: { coordinates: [loc.lng, loc.lat] },
+                });
+                setDropText(loc.name);
+              }
             }
           }}
           className="w-full h-full"
