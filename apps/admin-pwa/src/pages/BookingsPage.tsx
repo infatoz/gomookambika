@@ -14,6 +14,10 @@ import {
   Col,
   Switch,
   Badge,
+  Popconfirm,
+  message,
+  Segmented,
+  Alert,
 } from 'antd';
 import {
   SearchOutlined,
@@ -32,6 +36,7 @@ import {
   CompassOutlined,
   FileTextOutlined,
   DollarCircleOutlined,
+  DeleteOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType, TablePaginationConfig } from 'antd/es/table';
 import apiClient from '@/lib/apiClient';
@@ -84,6 +89,12 @@ export function BookingsPage() {
   const [paymentStatusFilter, setPaymentStatusFilter] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('');
   const [autoRefresh, setAutoRefresh] = useState(true);
+  const [quickFilter, setQuickFilter] = useState<string>('ALL');
+
+  // Multi-selection & Deletion State
+  const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [isBulkDeleting, setIsBulkDeleting] = useState(false);
 
   // Pagination
   const [page, setPage] = useState(1);
@@ -150,13 +161,71 @@ export function BookingsPage() {
   const bookings: BookingTicketData[] = bookingsResponse?.data ?? [];
   const meta = bookingsResponse?.meta ?? { total: 0, totalPages: 1 };
 
+  const handleSelectQuickFilter = (filterKey: string) => {
+    setQuickFilter(filterKey);
+    if (filterKey === 'ALL') {
+      setStatusFilter('');
+    } else if (filterKey === 'LIVE') {
+      setStatusFilter('LIVE');
+    } else if (filterKey === 'COMPLETED') {
+      setStatusFilter('COMPLETED');
+    } else if (filterKey === 'CANCELLED') {
+      setStatusFilter('CANCELLED,EXPIRED');
+    }
+    setPage(1);
+  };
+
   const handleResetFilters = () => {
     setSearch('');
     setStatusFilter('');
     setTripTypeFilter('');
     setPaymentStatusFilter('');
     setCategoryFilter('');
+    setQuickFilter('ALL');
     setPage(1);
+  };
+
+  const handleDeleteBooking = async (id: string, bookingNumber?: string) => {
+    try {
+      setDeletingId(id);
+      const hide = message.loading(`Deleting booking ${bookingNumber ? `#${bookingNumber}` : ''}...`, 0);
+      await apiClient.delete(`/admin/bookings/${id}`);
+      hide();
+      message.success(`Booking ${bookingNumber ? `#${bookingNumber}` : ''} permanently deleted`);
+      if (drawerBooking?._id === id) {
+        setDrawerBooking(null);
+      }
+      setSelectedRowKeys(prev => prev.filter(k => k !== id));
+      refetch();
+      qc.invalidateQueries({ queryKey: ['admin-bookings-stats'] });
+    } catch (err: any) {
+      message.error(err.response?.data?.message || 'Failed to delete booking');
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedRowKeys.length === 0) return;
+    try {
+      setIsBulkDeleting(true);
+      const hide = message.loading(`Deleting ${selectedRowKeys.length} selected booking(s)...`, 0);
+      const res = await apiClient.post('/admin/bookings/bulk-delete', {
+        ids: selectedRowKeys,
+      });
+      hide();
+      message.success(res.data?.message || `Successfully deleted ${selectedRowKeys.length} booking(s)`);
+      if (drawerBooking && selectedRowKeys.includes(drawerBooking._id)) {
+        setDrawerBooking(null);
+      }
+      setSelectedRowKeys([]);
+      refetch();
+      qc.invalidateQueries({ queryKey: ['admin-bookings-stats'] });
+    } catch (err: any) {
+      message.error(err.response?.data?.message || 'Failed to bulk delete bookings');
+    } finally {
+      setIsBulkDeleting(false);
+    }
   };
 
   const formatDate = (d?: string) => {
@@ -336,7 +405,7 @@ export function BookingsPage() {
     {
       title: 'Actions',
       key: 'actions',
-      width: 170,
+      width: 210,
       align: 'right',
       render: (_, record) => (
         <Space size="small">
@@ -361,6 +430,33 @@ export function BookingsPage() {
               E-Ticket
             </Button>
           </Tooltip>
+
+          <Popconfirm
+            title="Permanently Delete Booking?"
+            description={
+              <div className="max-w-xs text-xs">
+                <div>Delete booking <b>#{record.bookingNumber}</b>?</div>
+                {STATUS_CONFIG[record.status]?.isLive && (
+                  <div className="text-amber-600 font-semibold mt-1">
+                    ⚠️ Live Ride: Chauffeur will be released and returned to the queue immediately.
+                  </div>
+                )}
+              </div>
+            }
+            okText="Yes, Delete"
+            cancelText="Cancel"
+            okButtonProps={{ danger: true, loading: deletingId === record._id }}
+            onConfirm={() => handleDeleteBooking(record._id, record.bookingNumber)}
+          >
+            <Tooltip title="Permanently Delete Booking">
+              <Button
+                size="small"
+                danger
+                icon={<DeleteOutlined />}
+                loading={deletingId === record._id}
+              />
+            </Tooltip>
+          </Popconfirm>
         </Space>
       ),
     },
@@ -419,7 +515,14 @@ export function BookingsPage() {
       {/* KPI Stat Cards */}
       <Row gutter={[16, 16]}>
         <Col xs={24} sm={12} lg={6}>
-          <Card className="shadow-sm border border-slate-200" styles={{ body: { padding: 16 } }}>
+          <Card
+            hoverable
+            onClick={() => handleSelectQuickFilter('ALL')}
+            className={`shadow-sm border transition-all cursor-pointer ${
+              quickFilter === 'ALL' && !statusFilter ? 'ring-2 ring-indigo-500 border-indigo-500 bg-indigo-50/20' : 'border-slate-200'
+            }`}
+            styles={{ body: { padding: 16 } }}
+          >
             <div className="flex items-center justify-between">
               <div>
                 <div className="text-xs uppercase font-bold text-slate-400">Total Bookings</div>
@@ -436,7 +539,14 @@ export function BookingsPage() {
         </Col>
 
         <Col xs={24} sm={12} lg={6}>
-          <Card className="shadow-sm border border-slate-200" styles={{ body: { padding: 16 } }}>
+          <Card
+            hoverable
+            onClick={() => handleSelectQuickFilter('LIVE')}
+            className={`shadow-sm border transition-all cursor-pointer ${
+              quickFilter === 'LIVE' || statusFilter === 'LIVE' ? 'ring-2 ring-indigo-500 border-indigo-500 bg-indigo-50/30' : 'border-slate-200'
+            }`}
+            styles={{ body: { padding: 16 } }}
+          >
             <div className="flex items-center justify-between">
               <div>
                 <div className="text-xs uppercase font-bold text-slate-400">Live / In Progress</div>
@@ -456,7 +566,14 @@ export function BookingsPage() {
         </Col>
 
         <Col xs={24} sm={12} lg={6}>
-          <Card className="shadow-sm border border-slate-200" styles={{ body: { padding: 16 } }}>
+          <Card
+            hoverable
+            onClick={() => handleSelectQuickFilter('COMPLETED')}
+            className={`shadow-sm border transition-all cursor-pointer ${
+              quickFilter === 'COMPLETED' || statusFilter === 'COMPLETED' ? 'ring-2 ring-emerald-500 border-emerald-500 bg-emerald-50/30' : 'border-slate-200'
+            }`}
+            styles={{ body: { padding: 16 } }}
+          >
             <div className="flex items-center justify-between">
               <div>
                 <div className="text-xs uppercase font-bold text-slate-400">Completed Trips</div>
@@ -473,22 +590,111 @@ export function BookingsPage() {
         </Col>
 
         <Col xs={24} sm={12} lg={6}>
-          <Card className="shadow-sm border border-slate-200" styles={{ body: { padding: 16 } }}>
+          <Card
+            hoverable
+            onClick={() => handleSelectQuickFilter('CANCELLED')}
+            className={`shadow-sm border transition-all cursor-pointer ${
+              quickFilter === 'CANCELLED' || statusFilter.includes('CANCELLED') ? 'ring-2 ring-rose-500 border-rose-500 bg-rose-50/30' : 'border-slate-200'
+            }`}
+            styles={{ body: { padding: 16 } }}
+          >
             <div className="flex items-center justify-between">
               <div>
-                <div className="text-xs uppercase font-bold text-slate-400">Paid Revenue</div>
-                <div className="text-2xl font-black text-slate-900 mt-1">
-                  ₹{(stats?.totalRevenue ?? 0).toLocaleString('en-IN')}
+                <div className="text-xs uppercase font-bold text-slate-400">Cancelled / Expired</div>
+                <div className="text-2xl font-black text-rose-600 mt-1">
+                  {stats?.cancelled ?? 0}
                 </div>
               </div>
-              <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center text-lg">
-                <DollarCircleOutlined />
+              <div className="w-10 h-10 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center text-lg">
+                <CloseCircleOutlined />
               </div>
             </div>
-            <div className="text-xs text-slate-500 mt-3">Total collected trip invoices</div>
+            <div className="text-xs text-slate-500 mt-3">Cancelled reservations</div>
           </Card>
         </Col>
       </Row>
+
+      {/* Quick Filter Segmented Bar & Bulk Action Bar */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-2.5 rounded-2xl border border-slate-200 shadow-sm">
+        <Segmented
+          size="middle"
+          value={quickFilter}
+          onChange={val => handleSelectQuickFilter(String(val))}
+          options={[
+            {
+              value: 'ALL',
+              label: (
+                <span className="px-2 font-medium">
+                  All ({stats?.total ?? meta.total})
+                </span>
+              ),
+            },
+            {
+              value: 'LIVE',
+              label: (
+                <span className="px-2 font-semibold text-indigo-600 flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse" />
+                  Live Rides ({stats?.live ?? 0})
+                </span>
+              ),
+            },
+            {
+              value: 'COMPLETED',
+              label: (
+                <span className="px-2 font-medium text-emerald-700">
+                  Completed ({stats?.completed ?? 0})
+                </span>
+              ),
+            },
+            {
+              value: 'CANCELLED',
+              label: (
+                <span className="px-2 font-medium text-rose-600">
+                  Cancelled ({stats?.cancelled ?? 0})
+                </span>
+              ),
+            },
+          ]}
+        />
+
+        {selectedRowKeys.length > 0 ? (
+          <div className="flex items-center gap-2 bg-rose-50 border border-rose-200 px-3 py-1 rounded-xl">
+            <span className="text-xs font-bold text-rose-800">
+              {selectedRowKeys.length} selected
+            </span>
+            <Popconfirm
+              title={`Permanently Delete ${selectedRowKeys.length} Booking(s)?`}
+              description="Are you sure you want to permanently delete all selected bookings? Active drivers on live rides will be freed and returned to the queue."
+              okText="Yes, Delete All"
+              cancelText="Cancel"
+              okButtonProps={{ danger: true, loading: isBulkDeleting }}
+              onConfirm={handleBulkDelete}
+            >
+              <Button
+                size="small"
+                danger
+                type="primary"
+                icon={<DeleteOutlined />}
+                loading={isBulkDeleting}
+              >
+                Delete Selected ({selectedRowKeys.length})
+              </Button>
+            </Popconfirm>
+            <Button
+              size="small"
+              type="text"
+              onClick={() => setSelectedRowKeys([])}
+              className="text-slate-500 text-xs"
+            >
+              Deselect
+            </Button>
+          </div>
+        ) : (
+          <div className="text-xs text-slate-400 px-2 hidden sm:block">
+            Select rows to delete multiple bookings at once
+          </div>
+        )}
+      </div>
 
       {/* Filters Toolbar Card */}
       <Card
@@ -514,12 +720,14 @@ export function BookingsPage() {
             value={statusFilter}
             onChange={val => {
               setStatusFilter(val);
+              setQuickFilter(val === 'LIVE' ? 'LIVE' : val === 'COMPLETED' ? 'COMPLETED' : val.includes('CANCELLED') ? 'CANCELLED' : val === '' ? 'ALL' : 'CUSTOM');
               setPage(1);
             }}
             style={{ width: 170 }}
             placeholder="Status"
             options={[
               { value: '', label: 'All Statuses' },
+              { value: 'LIVE', label: '🔥 All Live Rides' },
               { value: 'CONFIRMED', label: 'Confirmed' },
               { value: 'DRIVER_ASSIGNED', label: 'Driver Assigned' },
               { value: 'EN_ROUTE', label: 'Driver En Route' },
@@ -600,6 +808,10 @@ export function BookingsPage() {
         styles={{ body: { padding: 0 } }}
       >
         <Table
+          rowSelection={{
+            selectedRowKeys,
+            onChange: setSelectedRowKeys,
+          }}
           columns={columns}
           dataSource={bookings}
           rowKey="_id"
@@ -638,19 +850,56 @@ export function BookingsPage() {
         subtitle={drawerBooking ? `Booking #${drawerBooking.bookingNumber}` : undefined}
         footer={
           drawerBooking ? (
-            <Button
-              type="primary"
-              icon={<PrinterOutlined />}
-              onClick={() => setETicketBooking(drawerBooking)}
-              style={{ background: '#4f46e5', borderColor: '#4338ca' }}
-            >
-              Print / Download E-Ticket
-            </Button>
+            <div className="flex items-center justify-between w-full">
+              <Popconfirm
+                title="Permanently Delete Booking?"
+                description={
+                  <div className="max-w-xs text-xs">
+                    <div>Permanently delete booking <b>#{drawerBooking.bookingNumber}</b>?</div>
+                    {STATUS_CONFIG[drawerBooking.status]?.isLive && (
+                      <div className="text-amber-600 font-semibold mt-1">
+                        ⚠️ Live Ride: Chauffeur will be freed and returned to the queue immediately.
+                      </div>
+                    )}
+                  </div>
+                }
+                okText="Yes, Delete"
+                cancelText="Cancel"
+                okButtonProps={{ danger: true, loading: deletingId === drawerBooking._id }}
+                onConfirm={() => handleDeleteBooking(drawerBooking._id, drawerBooking.bookingNumber)}
+              >
+                <Button
+                  danger
+                  icon={<DeleteOutlined />}
+                  loading={deletingId === drawerBooking._id}
+                >
+                  Delete Booking
+                </Button>
+              </Popconfirm>
+
+              <Button
+                type="primary"
+                icon={<PrinterOutlined />}
+                onClick={() => setETicketBooking(drawerBooking)}
+                style={{ background: '#4f46e5', borderColor: '#4338ca' }}
+              >
+                Print / Download E-Ticket
+              </Button>
+            </div>
           ) : null
         }
       >
         {drawerBooking && (
           <div className="space-y-6 text-sm text-slate-700">
+            {STATUS_CONFIG[drawerBooking.status]?.isLive && (
+              <Alert
+                type="warning"
+                showIcon
+                message="Live Active Booking"
+                description="This ride is currently active in dispatch. Deleting it will immediately terminate the trip, release the assigned driver, and update customer and driver apps."
+                className="rounded-xl"
+              />
+            )}
             {/* Status & Trip Type */}
             <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 grid grid-cols-2 gap-4">
               <div>

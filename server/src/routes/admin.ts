@@ -533,7 +533,15 @@ router.get('/bookings', requirePermission('booking.view'), async (req, res) => {
   const vehicleCategoryId = req.query.vehicleCategoryId ? String(req.query.vehicleCategoryId).trim() : '';
 
   const filter: Record<string, unknown> = {};
-  if (status) filter.status = status;
+  if (status) {
+    if (status === 'LIVE') {
+      filter.status = { $in: ['CONFIRMED', 'DRIVER_ASSIGNED', 'EN_ROUTE', 'ARRIVED', 'TRIP_STARTED', 'PENDING', 'SEARCHING_DRIVER', 'DRIVER_ACCEPTED'] };
+    } else if (status.includes(',')) {
+      filter.status = { $in: status.split(',').map(s => s.trim()) };
+    } else {
+      filter.status = status;
+    }
+  }
   if (tripType) filter.tripType = tripType;
   if (paymentStatus) filter.paymentStatus = paymentStatus;
   if (vehicleCategoryId) filter.vehicleCategoryId = vehicleCategoryId;
@@ -671,6 +679,199 @@ router.post('/bookings', requirePermission('booking.view'), async (req, res) => 
     success: true,
     message: 'Booking created successfully and dispatched to queue!',
     data: populatedBooking,
+  });
+});
+
+/**
+ * Permanently deletes a booking (live or past) and cleans up:
+ * - Releases assigned or offered driver (resets to IN_QUEUE if queue entry exists, or AVAILABLE)
+ * - Restores queue entry to WAITING
+ * - Cleans Redis offers and OTPs
+ * - Broadcasts cancellation/deletion events via WebSockets to customer, driver, and admin
+ * - Deletes associated Trip(s) and Payment(s)
+ * - Deletes the Booking record
+ */
+async function deleteBookingAndCleanup(bookingId: string): Promise<{ deleted: boolean; bookingNumber?: string }> {
+  const { Booking } = await import('@/models/Booking');
+  const { Trip } = await import('@/models/Trip');
+  const { Driver } = await import('@/models/Driver');
+  const { QueueEntry } = await import('@/models/QueueEntry');
+  const { Payment } = await import('@/models/Payment');
+  const { DriverStatus, QueueEntryStatus, SocketEvent } = await import('@gomookambika/types');
+  const { tryGetIO } = await import('@/sockets');
+  const { getRedis, redisKeys } = await import('@/config/redis');
+
+  const booking = await Booking.findById(bookingId);
+  if (!booking) {
+    return { deleted: false };
+  }
+
+  const bookingNumber = booking.bookingNumber;
+  const trips = await Trip.find({ bookingId: booking._id });
+  const tripIds = trips.map(t => t._id);
+  const redis = getRedis();
+  const io = tryGetIO();
+
+  // Find all drivers associated with this booking or its trips
+  const driverIdsToRelease = new Set<string>();
+  if (booking.assignedDriverId) {
+    driverIdsToRelease.add(booking.assignedDriverId.toString());
+  }
+  for (const trip of trips) {
+    if (trip.driverId) {
+      driverIdsToRelease.add(trip.driverId.toString());
+    }
+  }
+
+  // Also check if any QueueEntry was offered or assigned for this booking/trip
+  const queryOr: any[] = [];
+  if (tripIds.length > 0) {
+    queryOr.push({ tripId: { $in: tripIds } });
+  }
+  if (driverIdsToRelease.size > 0) {
+    queryOr.push({ driverId: { $in: Array.from(driverIdsToRelease) } });
+  }
+
+  if (queryOr.length > 0) {
+    const offeredEntries = await QueueEntry.find({
+      status: { $in: [QueueEntryStatus.OFFERED, QueueEntryStatus.ASSIGNED] },
+      $or: queryOr,
+    });
+    for (const entry of offeredEntries) {
+      driverIdsToRelease.add(entry.driverId.toString());
+    }
+  }
+
+  // Release drivers and reset queue entries
+  for (const driverId of driverIdsToRelease) {
+    const activeQueue = await QueueEntry.findOne({
+      driverId,
+      status: { $in: [QueueEntryStatus.WAITING, QueueEntryStatus.OFFERED, QueueEntryStatus.ASSIGNED] },
+    });
+
+    if (activeQueue) {
+      activeQueue.status = QueueEntryStatus.WAITING;
+      activeQueue.tripId = null as any;
+      activeQueue.tripAcceptedAt = null as any;
+      activeQueue.tripOfferedAt = null as any;
+      await activeQueue.save();
+
+      await Driver.findByIdAndUpdate(driverId, {
+        status: DriverStatus.IN_QUEUE,
+        activeTripId: null,
+      });
+    } else {
+      await Driver.findByIdAndUpdate(driverId, {
+        status: DriverStatus.AVAILABLE,
+        activeTripId: null,
+      });
+    }
+
+    // Clear Redis offer
+    if (redis) {
+      await redis.del(redisKeys.driverTripOffer(driverId)).catch(() => {});
+    }
+
+    // Notify driver via socket
+    if (io) {
+      io.to(`driver:${driverId}`).emit('trip:cancelled', {
+        bookingId: booking._id,
+        reason: 'Booking deleted by Admin',
+      });
+      io.to(`driver:${driverId}`).emit('booking:cancelled', {
+        bookingId: booking._id,
+        reason: 'Booking deleted by Admin',
+      });
+      io.to(`driver:${driverId}`).emit(SocketEvent.TRIP_OFFER_TIMEOUT, {
+        bookingId: booking._id,
+      });
+    }
+  }
+
+  // Clean any other QueueEntry that referenced these trips
+  if (tripIds.length > 0) {
+    await QueueEntry.updateMany(
+      { tripId: { $in: tripIds } },
+      { status: QueueEntryStatus.WAITING, tripId: null, tripAcceptedAt: null, tripOfferedAt: null }
+    );
+  }
+
+  // Delete trip OTPs from redis
+  if (redis) {
+    for (const trip of trips) {
+      await redis.del(redisKeys.tripStartOTP(trip._id.toString())).catch(() => {});
+    }
+  }
+
+  // Notify customer
+  if (io && booking.customerId) {
+    io.to(`customer:${booking.customerId}`).emit(SocketEvent.BOOKING_STATUS_CHANGED, {
+      bookingId: booking._id,
+      status: 'CANCELLED',
+    });
+    io.to(`customer:${booking.customerId}`).emit('booking:cancelled', {
+      bookingId: booking._id,
+      bookingNumber,
+      reason: 'Booking deleted by Admin',
+    });
+    io.to(`customer:${booking.customerId}`).emit('booking:deleted', {
+      bookingId: booking._id,
+      bookingNumber,
+    });
+  }
+
+  // Notify Admin operations room
+  if (io) {
+    io.to('admin:operations').emit('booking:deleted', {
+      bookingId: booking._id,
+      bookingNumber,
+    });
+  }
+
+  // Delete trips and payments
+  await Trip.deleteMany({ bookingId: booking._id });
+  await Payment.deleteMany({ bookingId: booking._id }).catch(() => {});
+
+  // Delete booking
+  await Booking.deleteOne({ _id: booking._id });
+
+  return { deleted: true, bookingNumber };
+}
+
+// DELETE /admin/bookings/:id - Permanently delete a single booking (live or past)
+router.delete('/bookings/:id', requirePermission('booking.view'), async (req, res) => {
+  const result = await deleteBookingAndCleanup(req.params.id);
+  if (!result.deleted) {
+    throw errors.notFound('Booking');
+  }
+
+  res.json({
+    success: true,
+    message: `Booking ${result.bookingNumber || req.params.id} permanently deleted`,
+  });
+});
+
+// POST /admin/bookings/bulk-delete - Permanently delete multiple bookings
+router.post('/bookings/bulk-delete', requirePermission('booking.view'), async (req, res) => {
+  const { ids } = req.body;
+  if (!Array.isArray(ids) || ids.length === 0) {
+    throw errors.badRequest('Please provide an array of booking IDs to delete');
+  }
+
+  let deletedCount = 0;
+  for (const id of ids) {
+    try {
+      const result = await deleteBookingAndCleanup(id);
+      if (result.deleted) deletedCount++;
+    } catch {
+      // Continue with remaining
+    }
+  }
+
+  res.json({
+    success: true,
+    message: `Successfully deleted ${deletedCount} booking(s)`,
+    deletedCount,
   });
 });
 
