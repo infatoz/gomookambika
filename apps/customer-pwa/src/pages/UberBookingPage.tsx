@@ -5,8 +5,9 @@ import { UberLocalRideCard } from '@/components/UberLocalRideCard';
 import { UberRideSelector, VehicleCategoryItem, FareEstimateData } from '@/components/UberRideSelector';
 import { UberTripTracking, ActiveBookingData } from '@/components/UberTripTracking';
 import { UberLoginModal } from '@/components/UberLoginModal';
+import { UberVehiclesModal } from '@/components/UberVehiclesModal';
 import { api, AuthState } from '@/lib/api';
-import { ArrowLeft, Clock, Car, Compass, AlertCircle } from 'lucide-react';
+import { ArrowLeft, Clock, Car, Compass, AlertCircle, ChevronRight, Sparkles } from 'lucide-react';
 
 interface UberBookingPageProps {
   auth: AuthState;
@@ -14,6 +15,8 @@ interface UberBookingPageProps {
   onOpenGlobalLogin?: () => void;
   activeService?: 'ride' | 'local';
   onChangeService?: (service: 'ride' | 'local') => void;
+  vehiclesModalOpen?: boolean;
+  onToggleVehiclesModal?: (open: boolean) => void;
 }
 
 type BookingViewMode = 'search' | 'vehicles' | 'active_trip';
@@ -23,9 +26,18 @@ export function UberBookingPage({
   onUpdateAuth,
   activeService = 'ride',
   onChangeService,
+  vehiclesModalOpen: externalVehiclesModalOpen,
+  onToggleVehiclesModal,
 }: UberBookingPageProps) {
   const [serviceType, setServiceType] = useState<'ride' | 'local'>(activeService);
   const [viewMode, setViewMode] = useState<BookingViewMode>('search');
+  const [internalVehiclesModalOpen, setInternalVehiclesModalOpen] = useState(false);
+
+  const isVehiclesModalOpen = externalVehiclesModalOpen !== undefined ? externalVehiclesModalOpen : internalVehiclesModalOpen;
+  const setVehiclesModalOpen = (open: boolean) => {
+    setInternalVehiclesModalOpen(open);
+    onToggleVehiclesModal?.(open);
+  };
 
   // Sync activeService if changed from outer nav
   useEffect(() => {
@@ -420,6 +432,33 @@ export function UberBookingPage({
 
           {viewMode === 'search' && (
             <>
+              {/* Vehicles by Type Banner Card */}
+              <div
+                onClick={() => setVehiclesModalOpen(true)}
+                className="flex items-center justify-between p-3 bg-neutral-50 hover:bg-neutral-100 rounded-2xl border border-neutral-200/90 mb-3.5 cursor-pointer transition-all active:scale-[0.99] group shadow-xs"
+              >
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-10 h-10 rounded-xl bg-black text-white flex items-center justify-center shrink-0 shadow-sm">
+                    <Car className="w-5 h-5" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-xs md:text-sm font-bold text-neutral-900 flex items-center gap-2">
+                      <span>Explore Vehicles by Type</span>
+                      <span className="text-[10px] px-2 py-0.2 bg-emerald-100 text-emerald-800 rounded-full font-semibold border border-emerald-200">
+                        Admin Fleet
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-neutral-500 truncate mt-0.5">
+                      Sedan, SUV, Hatchback & Auto • View models & regulated fares
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-1 text-xs font-semibold text-neutral-500 group-hover:text-black shrink-0">
+                  <span className="hidden sm:inline text-[11px]">View All</span>
+                  <ChevronRight className="w-4 h-4 transition-transform group-hover:translate-x-0.5" />
+                </div>
+              </div>
+
               {/* Service Mode Switcher Tabs (Point-to-Point vs Local Ride) */}
               <div className="flex items-center p-1 bg-neutral-100 rounded-2xl border border-neutral-200 mb-4">
                 <button
@@ -501,6 +540,7 @@ export function UberBookingPage({
               bookingLoading={bookingLoading}
               paymentMethod={paymentMethod}
               onChangePaymentMethod={setPaymentMethod}
+              onOpenVehiclesModal={() => setVehiclesModalOpen(true)}
             />
           )}
 
@@ -547,6 +587,18 @@ export function UberBookingPage({
         onLoginSuccess={handleLoginSuccess}
         title="Log in to confirm your ride"
         subtitle="Verify with your mobile number to complete this booking"
+      />
+
+      {/* Vehicles by Type Platform Fleet Modal */}
+      <UberVehiclesModal
+        isOpen={isVehiclesModalOpen}
+        onClose={() => setVehiclesModalOpen(false)}
+        categories={categories}
+        onSelectCategory={cat => {
+          setSelectedCategory(cat);
+          setViewMode('vehicles');
+          fetchFareEstimate(cat);
+        }}
       />
     </div>
   );

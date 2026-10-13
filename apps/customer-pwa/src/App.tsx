@@ -12,6 +12,7 @@ type Tab = 'ride' | 'local' | 'trips' | 'profile';
 function App() {
   const [activeTab, setActiveTab] = useState<Tab>('ride');
   const [globalLoginOpen, setGlobalLoginOpen] = useState(false);
+  const [vehiclesModalOpen, setVehiclesModalOpen] = useState(false);
 
   const [auth, setAuth] = useState<AuthState>(() => {
     try {
@@ -68,6 +69,7 @@ function App() {
         onSelectTab={setActiveTab}
         onOpenLogin={() => setGlobalLoginOpen(true)}
         onLogout={handleLogout}
+        onOpenVehiclesModal={() => setVehiclesModalOpen(true)}
       />
 
       {/* ─── MAIN APPLICATION VIEW ─── */}
@@ -79,6 +81,8 @@ function App() {
             onOpenGlobalLogin={() => setGlobalLoginOpen(true)}
             activeService={activeTab === 'local' ? 'local' : 'ride'}
             onChangeService={service => setActiveTab(service)}
+            vehiclesModalOpen={vehiclesModalOpen}
+            onToggleVehiclesModal={setVehiclesModalOpen}
           />
         )}
 

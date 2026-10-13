@@ -11,6 +11,7 @@ interface UberNavbarProps {
   onSelectTab: (tab: NavTab) => void;
   onOpenLogin: () => void;
   onLogout: () => void;
+  onOpenVehiclesModal?: () => void;
 }
 
 export function UberNavbar({
@@ -19,6 +20,7 @@ export function UberNavbar({
   onSelectTab,
   onOpenLogin,
   onLogout,
+  onOpenVehiclesModal,
 }: UberNavbarProps) {
   const [drawerOpen, setDrawerOpen] = useState(false);
 
@@ -63,6 +65,16 @@ export function UberNavbar({
                   Fixed
                 </span>
               </button>
+              {onOpenVehiclesModal && (
+                <button
+                  type="button"
+                  onClick={onOpenVehiclesModal}
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-semibold text-neutral-700 hover:bg-neutral-100 transition-all"
+                >
+                  <Car className="w-3.5 h-3.5 text-neutral-500" />
+                  <span>Vehicles</span>
+                </button>
+              )}
               <button
                 onClick={() => onSelectTab('trips')}
                 className={`px-4 py-2 rounded-full text-sm font-semibold transition-all ${
@@ -198,6 +210,22 @@ export function UberNavbar({
                   <ChevronRight className="w-4 h-4 text-neutral-400" />
                 </div>
               </button>
+
+              {onOpenVehiclesModal && (
+                <button
+                  onClick={() => {
+                    setDrawerOpen(false);
+                    onOpenVehiclesModal();
+                  }}
+                  className="w-full flex items-center justify-between px-3 py-3 rounded-xl text-sm font-semibold transition-colors hover:bg-neutral-50 text-neutral-800"
+                >
+                  <div className="flex items-center gap-3">
+                    <Car className="w-5 h-5 text-neutral-700" />
+                    <span>Vehicles by Type (Fleet)</span>
+                  </div>
+                  <ChevronRight className="w-4 h-4 text-neutral-400" />
+                </button>
+              )}
 
               <button
                 onClick={() => {
