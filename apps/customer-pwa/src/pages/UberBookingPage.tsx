@@ -429,7 +429,7 @@ export function UberBookingPage({
             : undefined,
           vehicleCategoryId: selectedCategory?._id || categories[0]?._id,
           passengers: 1,
-          paymentOption: paymentMethod === 'CASH' ? 'CASH' : 'FULL_PAYMENT',
+          paymentOption: 'CASH',
         },
         activeToken
       );

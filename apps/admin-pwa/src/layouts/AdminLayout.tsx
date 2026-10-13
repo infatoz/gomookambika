@@ -26,23 +26,21 @@ type NavEntry = NavItemDef | NavSection;
 const navEntries: NavEntry[] = [
   { label: 'MAIN', type: 'section' },
   { label: 'Dashboard', icon: LayoutDashboard, to: '/', end: true },
-  { label: 'Operations', icon: Activity, children: [
-    { label: 'Queue Management', to: '/queue' },
-    { label: 'Live Bookings',    to: '/bookings' },
-  ]},
-  { label: 'MANAGEMENT', type: 'section' },
+  { label: 'Bookings', icon: CalendarCheck, to: '/bookings' },
+  { label: 'Queue Management', icon: Activity, to: '/queue' },
+
+  { label: 'FLEET & DRIVERS', type: 'section' },
   { label: 'Drivers', icon: Users, to: '/drivers' },
   { label: 'Vehicles', icon: Car, children: [
-    { label: 'All Vehicles',    to: '/vehicles' },
-    { label: 'Vehicle Types',   to: '/vehicles/categories' },
+    { label: 'All Vehicles', to: '/vehicles' },
+    { label: 'Vehicle Types', to: '/vehicles/categories' },
   ]},
-  { label: 'Locations', icon: MapPin, children: [
-    { label: 'All Locations', to: '/locations' },
-    { label: 'Taxi Stands',   to: '/taxi-stands' },
-    { label: 'Fixed Route Fares', to: '/pricing-rules' },
-  ]},
+
+  { label: 'LOCATIONS & PRICING', type: 'section' },
+  { label: 'Locations', icon: MapPin, to: '/locations' },
+  { label: 'Taxi Stands', icon: Landmark, to: '/taxi-stands' },
   { label: 'Fixed Route Fares', icon: Route, to: '/pricing-rules' },
-  { label: 'Bookings', icon: CalendarCheck, to: '/bookings' },
+
   { label: 'SYSTEM', type: 'section' },
   { label: 'Settings', icon: Settings, to: '/settings' },
 ];

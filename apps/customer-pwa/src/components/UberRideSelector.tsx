@@ -341,26 +341,17 @@ export function UberRideSelector({
           </div>
         )}
 
-        {/* Payment Method Selector & Promo Pill */}
+        {/* Payment Policy: Cash or UPI settled after ride completion */}
         <div className="pt-2.5 border-t border-neutral-100 flex items-center justify-between gap-3 text-xs">
-          <button
-            type="button"
-            onClick={() => onChangePaymentMethod(paymentMethod === 'CASH' ? 'ONLINE' : 'CASH')}
-            className="flex items-center gap-2 px-3 py-2 rounded-xl bg-neutral-100 hover:bg-neutral-200 font-medium text-neutral-800 transition-colors border border-neutral-200/80"
-          >
-            {paymentMethod === 'CASH' ? (
-              <>
-                <Banknote className="w-4 h-4 text-emerald-600" />
-                <span>Cash on Drop</span>
-              </>
-            ) : (
-              <>
-                <CreditCard className="w-4 h-4 text-blue-600" />
-                <span>UPI / Online</span>
-              </>
-            )}
-            <ChevronRight className="w-3.5 h-3.5 text-neutral-400" />
-          </button>
+          <div className="flex items-center gap-2.5 px-3 py-1.5 rounded-xl bg-neutral-100/80 font-medium text-neutral-800 border border-neutral-200/80">
+            <div className="w-6 h-6 rounded-lg bg-emerald-100 flex items-center justify-center text-emerald-700">
+              <Banknote className="w-3.5 h-3.5" />
+            </div>
+            <div className="flex flex-col text-left">
+              <span className="font-bold text-[11px] text-neutral-900">Pay on Ride Complete</span>
+              <span className="text-[10px] text-neutral-500">Only Cash or UPI QR to Captain</span>
+            </div>
+          </div>
 
           <div className="flex items-center gap-1.5 text-neutral-500 text-[11px]">
             <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
