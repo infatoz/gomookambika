@@ -36,6 +36,7 @@ export interface FareEstimateData {
   distanceKm: number;
   tax?: number;
   nightCharge?: number;
+  waitingCharge?: number;
   currency: string;
   isFixedFare: boolean;
   appliedRuleName?: string;
@@ -47,6 +48,7 @@ interface UberRideSelectorProps {
   selectedCategory: VehicleCategoryItem | null;
   onSelectCategory: (category: VehicleCategoryItem) => void;
   fareEstimate: FareEstimateData | null;
+  categoryEstimates?: Record<string, FareEstimateData>;
   loadingEstimate: boolean;
   onConfirmRide: () => void;
   bookingLoading: boolean;
@@ -95,6 +97,7 @@ export function UberRideSelector({
   selectedCategory,
   onSelectCategory,
   fareEstimate,
+  categoryEstimates,
   loadingEstimate,
   onConfirmRide,
   bookingLoading,
@@ -151,29 +154,31 @@ export function UberRideSelector({
             ac: false,
             description: 'Quick local temple transport',
             baseFare: 50,
-            ratePerKm: 12,
+            ratePerKm: 13,
             popularModels: ['Bajaj RE Compact'],
             vehicleCount: 1,
           },
         ];
 
-  // Helper to compute category specific fare
+  // Helper to compute category specific fare accurately from server estimate
   const getCategoryFare = (cat: VehicleCategoryItem): number => {
-    if (fareEstimate) {
-      if (selectedCategory?._id === cat._id) {
-        return Math.round(fareEstimate.total);
-      }
-      // Proportional ratio based on per-km rates
-      const baseRate = selectedCategory?.ratePerKm || 18;
-      const targetRate = cat.ratePerKm || (cat.code === 'SUV' ? 24 : cat.code === 'AUTO' ? 12 : 15);
-      const ratio = targetRate / (baseRate || 18);
-      return Math.round(fareEstimate.total * ratio);
+    if (categoryEstimates && categoryEstimates[cat._id]?.total) {
+      return Math.round(categoryEstimates[cat._id].total);
     }
-    // Fallback baseline distance 25km
+    if (selectedCategory?._id === cat._id && fareEstimate?.total) {
+      return Math.round(fareEstimate.total);
+    }
+    // Fallback accurate calculation if server estimate not loaded yet
+    const dist = fareEstimate?.distanceKm || 25;
     const base = cat.baseFare || 100;
     const rate = cat.ratePerKm || 18;
-    return Math.round(base + 25 * rate);
+    const sub = base + dist * rate;
+    return Math.round(sub + sub * 0.05);
   };
+
+  const currentEstimate =
+    (selectedCategory && categoryEstimates && categoryEstimates[selectedCategory._id]) ||
+    fareEstimate;
 
   return (
     <div className="flex flex-col h-full text-black">
@@ -276,70 +281,116 @@ export function UberRideSelector({
                 </div>
               </div>
 
-              {/* Right: Fare Price */}
-              <div className="text-right shrink-0 pl-2">
-                <div className="font-black text-base text-neutral-900 font-mono tracking-tight">
-                  ₹{fare}
+                {/* Right: Fare Price */}
+                <div className="text-right shrink-0 pl-2">
+                  <div className="font-black text-base text-neutral-900 font-mono tracking-tight">
+                    ₹{fare}
+                  </div>
+                  {categoryEstimates?.[cat._id]?.isFixedFare ? (
+                    <span className="text-[10px] font-semibold text-emerald-600 block">Fixed Rate</span>
+                  ) : cat.code === 'SEDAN' ? (
+                    <span className="text-[10px] font-semibold text-neutral-500 block">Popular</span>
+                  ) : null}
                 </div>
-                {cat.code === 'SEDAN' && (
-                  <span className="text-[10px] font-semibold text-emerald-600 block">Popular</span>
-                )}
               </div>
-            </div>
-          );
-        })}
-      </div>
-
-      {/* Payment Method Selector & Promo Pill */}
-      <div className="pt-3 border-t border-neutral-100 flex items-center justify-between gap-3 text-xs">
-        <button
-          type="button"
-          onClick={() => onChangePaymentMethod(paymentMethod === 'CASH' ? 'ONLINE' : 'CASH')}
-          className="flex items-center gap-2 px-3 py-2 rounded-xl bg-neutral-100 hover:bg-neutral-200 font-medium text-neutral-800 transition-colors border border-neutral-200/80"
-        >
-          {paymentMethod === 'CASH' ? (
-            <>
-              <Banknote className="w-4 h-4 text-emerald-600" />
-              <span>Cash on Drop</span>
-            </>
-          ) : (
-            <>
-              <CreditCard className="w-4 h-4 text-blue-600" />
-              <span>UPI / Online</span>
-            </>
-          )}
-          <ChevronRight className="w-3.5 h-3.5 text-neutral-400" />
-        </button>
-
-        <div className="flex items-center gap-1.5 text-neutral-500 text-[11px]">
-          <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
-          <span>Regulated Tariff</span>
+            );
+          })}
         </div>
-      </div>
 
-      {/* Primary Action Button: Confirm Ride */}
-      <div className="pt-3">
-        <button
-          type="button"
-          onClick={onConfirmRide}
-          disabled={bookingLoading || loadingEstimate}
-          className="w-full py-4 bg-black hover:bg-neutral-800 disabled:bg-neutral-300 text-white font-bold rounded-2xl text-base transition-all active:scale-[0.98] shadow-lg flex items-center justify-center gap-2"
-        >
-          {bookingLoading ? (
-            <>
-              <Loader2 className="w-5 h-5 animate-spin" />
-              <span>Confirming your cab...</span>
-            </>
-          ) : (
-            <>
-              <span>Choose {selectedCategory?.name || 'Ride'}</span>
-              <span className="text-sm font-normal opacity-80">
-                • ₹{selectedCategory ? getCategoryFare(selectedCategory) : fareEstimate?.total || 350}
-              </span>
-            </>
-          )}
-        </button>
-      </div>
+        {/* Transparent Accurate Fare Breakdown for Selected Vehicle */}
+        {currentEstimate && (
+          <div className="bg-neutral-50/90 rounded-2xl p-2.5 border border-neutral-200/80 my-1 space-y-1 text-xs">
+            <div className="flex items-center justify-between font-semibold text-neutral-800">
+              <span className="truncate pr-2">{currentEstimate.appliedRuleName || `${selectedCategory?.name || 'Ride'} Fare`}</span>
+              {currentEstimate.isFixedFare ? (
+                <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 shrink-0">
+                  Fixed Route Tariff
+                </span>
+              ) : (
+                <span className="text-[11px] font-medium text-neutral-500 shrink-0">
+                  ₹{currentEstimate.ratePerKm || selectedCategory?.ratePerKm || 18}/km
+                </span>
+              )}
+            </div>
+            <div className="flex items-center justify-between text-neutral-500 text-[11px] pt-1 border-t border-neutral-200/60">
+              <span>Base Fare</span>
+              <span>₹{Math.round(currentEstimate.baseFare)}</span>
+            </div>
+            {currentEstimate.distanceFare > 0 && (
+              <div className="flex items-center justify-between text-neutral-500 text-[11px]">
+                <span>Distance Fare ({currentEstimate.distanceKm.toFixed(1)} km)</span>
+                <span>₹{Math.round(currentEstimate.distanceFare)}</span>
+              </div>
+            )}
+            {typeof currentEstimate.tax === 'number' && currentEstimate.tax > 0 && (
+              <div className="flex items-center justify-between text-neutral-500 text-[11px]">
+                <span>GST & RTO charges (5%)</span>
+                <span>₹{Math.round(currentEstimate.tax)}</span>
+              </div>
+            )}
+            {typeof currentEstimate.nightCharge === 'number' && currentEstimate.nightCharge > 0 && (
+              <div className="flex items-center justify-between text-amber-700 text-[11px]">
+                <span>Night Charges</span>
+                <span>₹{Math.round(currentEstimate.nightCharge)}</span>
+              </div>
+            )}
+            <div className="flex items-center justify-between font-bold text-neutral-900 text-xs pt-1 border-t border-neutral-200">
+              <span>Total Payable</span>
+              <span className="font-mono text-sm">₹{Math.round(currentEstimate.total)}</span>
+            </div>
+          </div>
+        )}
+
+        {/* Payment Method Selector & Promo Pill */}
+        <div className="pt-2.5 border-t border-neutral-100 flex items-center justify-between gap-3 text-xs">
+          <button
+            type="button"
+            onClick={() => onChangePaymentMethod(paymentMethod === 'CASH' ? 'ONLINE' : 'CASH')}
+            className="flex items-center gap-2 px-3 py-2 rounded-xl bg-neutral-100 hover:bg-neutral-200 font-medium text-neutral-800 transition-colors border border-neutral-200/80"
+          >
+            {paymentMethod === 'CASH' ? (
+              <>
+                <Banknote className="w-4 h-4 text-emerald-600" />
+                <span>Cash on Drop</span>
+              </>
+            ) : (
+              <>
+                <CreditCard className="w-4 h-4 text-blue-600" />
+                <span>UPI / Online</span>
+              </>
+            )}
+            <ChevronRight className="w-3.5 h-3.5 text-neutral-400" />
+          </button>
+
+          <div className="flex items-center gap-1.5 text-neutral-500 text-[11px]">
+            <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+            <span>Regulated Tariff</span>
+          </div>
+        </div>
+
+        {/* Primary Action Button: Confirm Ride */}
+        <div className="pt-2.5">
+          <button
+            type="button"
+            onClick={onConfirmRide}
+            disabled={bookingLoading || loadingEstimate}
+            className="w-full py-4 bg-black hover:bg-neutral-800 disabled:bg-neutral-300 text-white font-bold rounded-2xl text-base transition-all active:scale-[0.98] shadow-lg flex items-center justify-center gap-2"
+          >
+            {bookingLoading ? (
+              <>
+                <Loader2 className="w-5 h-5 animate-spin" />
+                <span>Confirming your cab...</span>
+              </>
+            ) : (
+              <>
+                <span>Choose {selectedCategory?.name || 'Ride'}</span>
+                <span className="text-sm font-normal opacity-80">
+                  • ₹{selectedCategory ? getCategoryFare(selectedCategory) : (currentEstimate?.total || 350)}
+                </span>
+              </>
+            )}
+          </button>
+        </div>
     </div>
   );
 }

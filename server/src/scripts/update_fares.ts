@@ -89,6 +89,46 @@ async function updateFares() {
     }
   );
 
+  // Update Auto Rickshaw
+  await db.collection('vehiclecategories').updateOne(
+    { code: 'AUTO' },
+    {
+      $set: {
+        baseFare: 50,
+        ratePerKm: 13,
+        minimumKm: 2,
+        'fares.oneWay': {
+          baseFare: 50,
+          ratePerKm: 13,
+          minimumKm: 2,
+          waitingChargePerMin: 1.0,
+          nightChargeMultiplier: 1.15,
+          driverAllowance: 0,
+        },
+        'fares.roundTrip': {
+          baseFare: 90,
+          ratePerKm: 12,
+          minimumKm: 20,
+          waitingChargePerMin: 1.0,
+          nightChargeMultiplier: 1.15,
+          driverAllowance: 150,
+        },
+        'fares.rental': {
+          baseFare: 300,
+          ratePerKm: 0,
+          minimumKm: 0,
+          baseHours: 2,
+          baseKm: 15,
+          extraKmRate: 13,
+          extraHourRate: 100,
+          waitingChargePerMin: 1.0,
+          nightChargeMultiplier: 1.15,
+          driverAllowance: 0,
+        },
+      },
+    }
+  );
+
   console.log('Vehicle categories fares updated successfully');
   await mongoose.disconnect();
 }

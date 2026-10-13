@@ -62,6 +62,7 @@ export function UberBookingPage({
 
   // Fare estimation & Booking
   const [fareEstimate, setFareEstimate] = useState<FareEstimateData | null>(null);
+  const [categoryEstimates, setCategoryEstimates] = useState<Record<string, FareEstimateData>>({});
   const [loadingEstimate, setLoadingEstimate] = useState(false);
   const [bookingLoading, setBookingLoading] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'ONLINE'>('CASH');
@@ -170,7 +171,12 @@ export function UberBookingPage({
   const { pickupCoords, dropCoords } = getCoordinates();
 
   // Fetch Fare Estimate when proceeding to vehicle selection
-  const fetchFareEstimate = async (targetCategory?: VehicleCategoryItem, overrideTripType?: string) => {
+  const fetchFareEstimate = async (
+    targetCategory?: VehicleCategoryItem,
+    overrideTripType?: string,
+    overridePickupLoc?: LocationOption | null,
+    overrideDropLoc?: LocationOption | null
+  ) => {
     const cat = targetCategory || selectedCategory || categories[0];
     if (!cat) return;
     setLoadingEstimate(true);
@@ -178,27 +184,59 @@ export function UberBookingPage({
 
     const effectiveTripType = overrideTripType || tripType || 'ONE_WAY';
     const isMongoId = (id?: string) => typeof id === 'string' && /^[0-9a-fA-F]{24}$/.test(id);
-    const pLocId = isMongoId(selectedPickupLoc?._id) ? selectedPickupLoc?._id : undefined;
-    const dLocId = isMongoId(selectedDropLoc?._id) ? selectedDropLoc?._id : undefined;
+
+    const activePickup = overridePickupLoc !== undefined ? overridePickupLoc : selectedPickupLoc;
+    const activeDrop = overrideDropLoc !== undefined ? overrideDropLoc : selectedDropLoc;
+
+    let pLat = 13.8647;
+    let pLng = 74.8135;
+    if (activePickup?.geoPoint?.coordinates?.length === 2) {
+      pLng = activePickup.geoPoint.coordinates[0];
+      pLat = activePickup.geoPoint.coordinates[1];
+    } else if (pickupCoords) {
+      pLat = pickupCoords.lat;
+      pLng = pickupCoords.lng;
+    }
+
+    let dLat = 13.8741;
+    let dLng = 74.6369;
+    if (activeDrop?.geoPoint?.coordinates?.length === 2) {
+      dLng = activeDrop.geoPoint.coordinates[0];
+      dLat = activeDrop.geoPoint.coordinates[1];
+    } else if (dropCoords) {
+      dLat = dropCoords.lat;
+      dLng = dropCoords.lng;
+    }
+
+    const pLocId = isMongoId(activePickup?._id) ? activePickup?._id : undefined;
+    const dLocId = isMongoId(activeDrop?._id) ? activeDrop?._id : undefined;
 
     try {
       const res = await api.post<{
+        success: boolean;
         data: {
           fareBreakdown?: any;
           routeDistanceKm?: number;
+          estimatedDurationMinutes?: number;
           isFixedFare?: boolean;
           appliedRule?: string;
+          ratePerKm?: number;
+          categoryEstimates?: Record<string, FareEstimateData>;
         };
       }>('/fare/estimate', {
-        pickupLatitude: pickupCoords.lat,
-        pickupLongitude: pickupCoords.lng,
-        dropLatitude: dropCoords?.lat || 13.8741,
-        dropLongitude: dropCoords?.lng || 74.6369,
+        pickupLatitude: pLat,
+        pickupLongitude: pLng,
+        dropLatitude: dLat,
+        dropLongitude: dLng,
         pickupLocationId: pLocId,
         dropLocationId: dLocId,
         vehicleCategoryId: cat._id,
         tripType: effectiveTripType,
       });
+
+      if (res.data?.categoryEstimates) {
+        setCategoryEstimates(res.data.categoryEstimates);
+      }
 
       const fb = res.data?.fareBreakdown;
       if (fb) {
@@ -206,28 +244,33 @@ export function UberBookingPage({
           total: fb.total,
           baseFare: fb.baseFare,
           distanceFare: fb.distanceFare,
-          distanceKm: res.data.routeDistanceKm || fb.distanceKm || 28.5,
+          distanceKm: res.data.routeDistanceKm ?? fb.distanceKm,
           tax: fb.tax,
-          nightCharge: fb.nightFare,
+          nightCharge: fb.nightFare || fb.nightCharge,
+          waitingCharge: fb.waitingCharge,
           currency: 'INR',
           isFixedFare: res.data.isFixedFare ?? fb.isFixedFare ?? false,
           appliedRuleName: res.data.appliedRule || fb.appliedRuleName,
-          ratePerKm: cat.ratePerKm || 18,
+          ratePerKm: res.data.ratePerKm || cat.ratePerKm || 18,
         });
       }
     } catch {
-      // Fallback estimate for smooth UX
+      // Dynamic fallback calculated from geodesic distance
+      const dist = Math.max(5, Math.round(Math.hypot((dLat - pLat) * 111, (dLng - pLng) * 105)));
       const base = cat.baseFare || 100;
       const rate = cat.ratePerKm || 18;
-      const dist = 28.5;
+      const distanceFare = dist * rate;
+      const subtotal = base + distanceFare;
+      const tax = Math.round(subtotal * 0.05);
       setFareEstimate({
-        total: Math.round(base + dist * rate),
+        total: subtotal + tax,
         baseFare: base,
-        distanceFare: Math.round(dist * rate),
+        distanceFare,
         distanceKm: dist,
+        tax,
         currency: 'INR',
         isFixedFare: false,
-        appliedRuleName: 'Standard Association Tariff',
+        appliedRuleName: 'Standard Tariff Rate',
         ratePerKm: rate,
       });
     } finally {
@@ -256,9 +299,13 @@ export function UberBookingPage({
     setDropText(route.destination.name);
     setTripType(route.tripType);
 
+    let targetCat = selectedCategory;
     if (route.vehicleCategoryId) {
       const matched = categories.find(c => c._id === route.vehicleCategoryId);
-      if (matched) setSelectedCategory(matched);
+      if (matched) {
+        targetCat = matched;
+        setSelectedCategory(matched);
+      }
     }
 
     setFareEstimate({
@@ -272,6 +319,7 @@ export function UberBookingPage({
     });
 
     setViewMode('vehicles');
+    fetchFareEstimate(targetCat || undefined, route.tripType, route.origin, route.destination);
   };
 
   // Handler when user selects an Hourly Rental package from Local Ride tab
@@ -295,6 +343,11 @@ export function UberBookingPage({
     setDropText(`${pkg.title} (Driver waits with you)`);
     setTripType('HOURLY_RENTAL');
 
+    const targetCat = pkg.vehicleCategory || selectedCategory;
+    if (pkg.vehicleCategory) {
+      setSelectedCategory(pkg.vehicleCategory);
+    }
+
     setFareEstimate({
       total: pkg.basePrice,
       baseFare: pkg.basePrice,
@@ -306,6 +359,7 @@ export function UberBookingPage({
     });
 
     setViewMode('vehicles');
+    fetchFareEstimate(targetCat || undefined, 'HOURLY_RENTAL', defaultTemple || null, null);
   };
 
   // Perform Booking with authentication check
@@ -532,9 +586,14 @@ export function UberBookingPage({
               selectedCategory={selectedCategory}
               onSelectCategory={cat => {
                 setSelectedCategory(cat);
-                fetchFareEstimate(cat);
+                if (categoryEstimates[cat._id]) {
+                  setFareEstimate(categoryEstimates[cat._id]);
+                } else {
+                  fetchFareEstimate(cat);
+                }
               }}
               fareEstimate={fareEstimate}
+              categoryEstimates={categoryEstimates}
               loadingEstimate={loadingEstimate}
               onConfirmRide={() => executeBooking()}
               bookingLoading={bookingLoading}

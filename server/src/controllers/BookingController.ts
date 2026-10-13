@@ -4,8 +4,9 @@ import { fareService } from '@/services/FareService';
 import { mapService } from '@/services/MapService';
 import { Booking } from '@/models/Booking';
 import { Trip } from '@/models/Trip';
+import { VehicleCategory } from '@/models/VehicleCategory';
 import { errors } from '@/middlewares/errorHandler';
-import { TripType } from '@gomookambika/types';
+import { Status, TripType } from '@gomookambika/types';
 
 export class BookingController {
   // POST /api/v1/fare/estimate
@@ -37,6 +38,42 @@ export class BookingController {
       dropLocationId,
     });
 
+    // Also calculate accurate fares for ALL active vehicle categories
+    const activeCategories = await VehicleCategory.find({ status: Status.ACTIVE }).sort({ sortOrder: 1 });
+    const categoryEstimates: Record<string, any> = {};
+
+    await Promise.all(
+      activeCategories.map(async (cat) => {
+        try {
+          const catResult = await fareService.calculateFare({
+            distanceKm,
+            durationMinutes: route?.durationMinutes,
+            vehicleCategoryId: cat._id.toString(),
+            tripType: (tripType as TripType) || TripType.ONE_WAY,
+            scheduledAt: scheduledAt ? new Date(scheduledAt) : new Date(),
+            pickupLocationId,
+            dropLocationId,
+          });
+          const fb = catResult.fareBreakdown;
+          categoryEstimates[cat._id.toString()] = {
+            total: Math.round(fb.total),
+            baseFare: fb.baseFare,
+            distanceFare: fb.distanceFare,
+            distanceKm: fb.distanceKm,
+            tax: fb.tax,
+            nightCharge: fb.nightCharge,
+            waitingCharge: fb.waitingCharge,
+            isFixedFare: catResult.isFixedFare,
+            appliedRuleName: catResult.appliedRuleName,
+            ratePerKm: catResult.ratePerKm ?? cat.ratePerKm,
+            currency: 'INR',
+          };
+        } catch {
+          // If a category fails to calculate, continue
+        }
+      })
+    );
+
     res.json({
       success: true,
       data: {
@@ -48,6 +85,7 @@ export class BookingController {
         routeDistanceKm: distanceKm,
         estimatedDurationMinutes: route?.durationMinutes,
         routePolyline: route?.polyline,
+        categoryEstimates,
       },
     });
   }
