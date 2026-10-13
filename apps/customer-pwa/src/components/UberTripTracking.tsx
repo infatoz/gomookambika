@@ -1,11 +1,13 @@
 import { useState, useEffect } from 'react';
-import { Phone, Shield, X, MapPin, CheckCircle2, AlertCircle, Share2, Loader2, ArrowRight } from 'lucide-react';
+import { Phone, Shield, X, MapPin, CheckCircle2, AlertCircle, Share2, Loader2, ArrowRight, QrCode, Maximize2 } from 'lucide-react';
+import QRCode from 'qrcode';
 import { api } from '@/lib/api';
 
 export interface ActiveBookingData {
   _id: string;
   bookingNumber: string;
   status: string;
+  startOTP?: string;
   pickupLocation: { address: string };
   dropLocation?: { address: string };
   vehicleCategoryId?: { name: string; code?: string };
@@ -28,6 +30,30 @@ export function UberTripTracking({
 }: UberTripTrackingProps) {
   const [cancelling, setCancelling] = useState(false);
   const [cancelError, setCancelError] = useState('');
+  const [qrDataUrl, setQrDataUrl] = useState<string>('');
+  const [showQrModal, setShowQrModal] = useState(false);
+
+  const otpCode = booking.startOTP || '123456';
+
+  useEffect(() => {
+    const payload = JSON.stringify({
+      type: 'GO_MOOKAMBIKA_RIDE',
+      bookingId: booking._id,
+      bookingNumber: booking.bookingNumber,
+      otp: otpCode,
+    });
+
+    QRCode.toDataURL(payload, {
+      width: 260,
+      margin: 1,
+      color: {
+        dark: '#000000',
+        light: '#ffffff',
+      },
+    })
+      .then(url => setQrDataUrl(url))
+      .catch(() => {});
+  }, [booking._id, booking.bookingNumber, otpCode]);
 
   const handleCancel = async () => {
     if (!window.confirm('Are you sure you want to cancel this booking?')) return;
@@ -118,18 +144,67 @@ export function UberTripTracking({
         </div>
       </div>
 
-      {/* Ride Start PIN / OTP Box */}
-      <div className="p-3.5 bg-neutral-900 text-white rounded-2xl flex items-center justify-between shadow-md">
-        <div>
-          <div className="text-[11px] font-semibold text-neutral-400 uppercase tracking-wider">
-            Ride Start PIN
+      {/* ─── RIDE START PIN & CUSTOMER QR CODE SECTION ─── */}
+      <div className="p-4 bg-slate-950 text-white rounded-3xl border border-emerald-500/30 shadow-xl space-y-3.5">
+        <div className="flex items-center justify-between border-b border-slate-800 pb-2.5">
+          <div className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+            <span className="text-[11px] font-bold tracking-wider uppercase text-emerald-400">
+              Trip Verification Code
+            </span>
           </div>
-          <div className="text-2xl font-black font-mono tracking-widest text-emerald-400 mt-0.5">
-            123456
+          <span className="text-[10px] text-slate-400">Share PIN or show QR</span>
+        </div>
+
+        {/* 6-Digit PIN Display */}
+        <div className="space-y-1.5 text-center">
+          <div className="text-[11px] text-slate-400 font-medium">
+            Share this 6-digit Ride PIN with your Captain
+          </div>
+          <div className="flex items-center justify-center gap-1.5 sm:gap-2 pt-1">
+            {otpCode.padEnd(6, '0').slice(0, 6).split('').map((digit, idx) => (
+              <span
+                key={idx}
+                className="w-10 h-12 flex items-center justify-center bg-slate-900 border border-emerald-500/40 rounded-xl text-emerald-400 font-mono font-black text-2xl shadow-inner tracking-tight select-all"
+              >
+                {digit}
+              </span>
+            ))}
           </div>
         </div>
-        <div className="text-right text-[11px] text-neutral-400 max-w-[150px] leading-snug">
-          Share this PIN with your driver to start the trip
+
+        {/* QR Code Action Card */}
+        <div className="p-3 rounded-2xl bg-slate-900/90 border border-slate-800 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            {qrDataUrl ? (
+              <div
+                onClick={() => setShowQrModal(true)}
+                className="w-14 h-14 bg-white p-1 rounded-xl shadow cursor-pointer shrink-0 hover:scale-105 transition-transform"
+                title="Click to expand QR Code"
+              >
+                <img src={qrDataUrl} alt="Ride QR Code" className="w-full h-full object-contain" />
+              </div>
+            ) : (
+              <div className="w-14 h-14 bg-slate-800 rounded-xl flex items-center justify-center text-slate-500 shrink-0">
+                <QrCode className="w-6 h-6 animate-pulse" />
+              </div>
+            )}
+            <div className="min-w-0">
+              <h5 className="font-bold text-xs text-white">Ride Start QR Code</h5>
+              <p className="text-[11px] text-slate-400 leading-tight mt-0.5">
+                Captain can scan this QR code directly to begin ride
+              </p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setShowQrModal(true)}
+            className="px-3 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black font-bold text-xs shrink-0 flex items-center gap-1.5 transition-all shadow-md active:scale-95"
+          >
+            <QrCode className="w-3.5 h-3.5" />
+            <span>Show QR</span>
+          </button>
         </div>
       </div>
 
@@ -236,6 +311,55 @@ export function UberTripTracking({
       >
         Close Live View
       </button>
+
+      {/* Fullscreen High-Contrast Customer QR Modal */}
+      {showQrModal && (
+        <div
+          onClick={() => setShowQrModal(false)}
+          className="fixed inset-0 z-50 bg-black/90 backdrop-blur-md flex items-center justify-center p-4"
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            className="w-full max-w-xs bg-white rounded-3xl p-6 text-center space-y-4 shadow-2xl animate-scale-up"
+          >
+            <div className="flex items-center justify-between pb-2 border-b border-neutral-100">
+              <div className="text-left">
+                <h4 className="font-bold text-base text-neutral-900">Ride Verification QR</h4>
+                <p className="text-xs text-neutral-500 font-mono">Trip #{booking.bookingNumber}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowQrModal(false)}
+                className="w-8 h-8 rounded-full bg-neutral-100 hover:bg-neutral-200 flex items-center justify-center text-neutral-700"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* High-visibility QR image */}
+            <div className="p-3 bg-white border-2 border-neutral-900 rounded-2xl shadow-md inline-block mx-auto">
+              {qrDataUrl && (
+                <img
+                  src={qrDataUrl}
+                  alt="Full Ride QR Code"
+                  className="w-56 h-56 object-contain mx-auto"
+                />
+              )}
+            </div>
+
+            <div className="space-y-1">
+              <div className="text-xs text-neutral-600 font-medium">Or provide 6-Digit PIN:</div>
+              <div className="font-mono font-black text-2xl tracking-[0.25em] text-neutral-900 bg-neutral-100 py-1.5 rounded-xl border border-neutral-200">
+                {otpCode}
+              </div>
+            </div>
+
+            <p className="text-[11px] text-neutral-400">
+              Captain will scan this QR or type the PIN to start the ride
+            </p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

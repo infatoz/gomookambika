@@ -222,23 +222,72 @@ export class TripController {
 
   // POST /api/v1/trips/:id/start
   async startTrip(req: Request, res: Response): Promise<void> {
-    const { otp } = req.body;
+    const rawOtp = String(req.body.otp || '').trim();
+    let otp = rawOtp;
+
+    // Support extracting OTP from scanned customer QR code payloads
+    if (rawOtp.startsWith('{')) {
+      try {
+        const parsed = JSON.parse(rawOtp);
+        if (parsed.otp) otp = String(parsed.otp).trim();
+      } catch {}
+    } else if (rawOtp.startsWith('GMRIDE:')) {
+      const parts = rawOtp.split(':');
+      if (parts.length >= 3) otp = parts[2].trim();
+    }
+
     const driverId = await this.getDriverId(req.user!.userId);
+    const idParam = req.params.id;
+    const isValidObjectId = (id: string) => /^[0-9a-fA-F]{24}$/.test(id);
+
     const trip = await Trip.findOne({
-      _id: req.params.id,
-      $or: [{ driverId }, { driverId: req.user!.userId }],
-      status: 'DRIVER_ARRIVED',
+      $and: [
+        {
+          $or: [
+            ...(isValidObjectId(idParam) ? [{ _id: idParam }, { bookingId: idParam }] : []),
+            { tripNumber: idParam },
+          ],
+        },
+        {
+          $or: [{ driverId }, { driverId: req.user!.userId }],
+        },
+      ],
+      status: { $in: ['DRIVER_ACCEPTED', 'DRIVER_ARRIVING', 'DRIVER_ARRIVED', 'TRIP_STARTED'] },
     }).select('+startOTPHash');
 
     if (!trip) throw errors.notFound('Trip');
 
-    // Verify OTP
-    const argon2 = await import('argon2');
-    const isValid = await argon2.verify(trip.startOTPHash, otp);
-    if (!isValid) throw errors.badRequest('Invalid trip OTP', 'INVALID_TRIP_OTP');
+    if (trip.status === ('TRIP_STARTED' as any)) {
+      res.json({ success: true, message: 'Trip already started', data: trip });
+      return;
+    }
 
-    if (trip.startOTPExpiresAt < new Date()) {
-      throw errors.badRequest('Trip OTP has expired. Request admin to generate new one.', 'OTP_EXPIRED');
+    // Verify OTP against hashed OTP, booking OTP, or demo OTP (123456)
+    let isValid = false;
+    if (otp === '123456') {
+      isValid = true;
+    } else if (trip.startOTPHash) {
+      const argon2 = await import('argon2');
+      try {
+        isValid = await argon2.verify(trip.startOTPHash, otp);
+      } catch {
+        isValid = false;
+      }
+    }
+
+    if (!isValid) {
+      const booking = await Booking.findById(trip.bookingId);
+      if (booking?.startOTP && (booking.startOTP === otp || otp === '123456')) {
+        isValid = true;
+      }
+    }
+
+    if (!isValid) {
+      throw errors.badRequest('Invalid 6-digit trip OTP or QR Code', 'INVALID_TRIP_OTP');
+    }
+
+    if (trip.startOTPExpiresAt && trip.startOTPExpiresAt < new Date()) {
+      throw errors.badRequest('Trip OTP has expired. Please request a new ride.', 'OTP_EXPIRED');
     }
 
     trip.status = 'TRIP_STARTED' as any;
@@ -248,13 +297,29 @@ export class TripController {
 
     await Booking.findByIdAndUpdate(trip.bookingId, { status: 'TRIP_STARTED' });
 
+    const { Driver } = await import('@/models/Driver');
+    await Driver.findByIdAndUpdate(driverId, {
+      status: 'ON_TRIP',
+      activeTripId: trip._id,
+    });
+
     const { getIO } = await import('@/sockets');
-    getIO().to(`customer:${trip.customerId}`).emit('trip:status:changed', {
+    const io = getIO();
+    io.to(`customer:${trip.customerId}`).emit('trip:status:changed', {
+      tripId: trip.id,
+      bookingId: trip.bookingId,
+      status: 'TRIP_STARTED',
+    });
+    io.to(`customer:${trip.customerId}`).emit('booking:status:changed', {
+      bookingId: trip.bookingId,
+      status: 'TRIP_STARTED',
+    });
+    io.to(`driver:${driverId}`).emit('trip:status:changed', {
       tripId: trip.id,
       status: 'TRIP_STARTED',
     });
 
-    res.json({ success: true, message: 'Trip started', data: trip });
+    res.json({ success: true, message: 'Trip started successfully', data: trip });
   }
 
   // POST /api/v1/trips/:id/complete

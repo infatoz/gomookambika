@@ -85,6 +85,7 @@ export function QueuePage({ auth }: QueuePageProps) {
   const [otpInput, setOtpInput] = useState('');
   const [location, setLocation] = useState<{ lat: number; lng: number; accuracy: number } | null>(null);
   const [qrModalOpen, setQrModalOpen] = useState(false);
+  const [customerQrModalOpen, setCustomerQrModalOpen] = useState(false);
   const [error, setError] = useState('');
   const [offerCountdown, setOfferCountdown] = useState(30);
   const [actionLoading, setActionLoading] = useState(false);
@@ -412,10 +413,11 @@ export function QueuePage({ auth }: QueuePageProps) {
   };
 
   // Handler: Verify OTP & Start Trip
-  const handleStartTrip = async () => {
+  const handleStartTrip = async (customOtp?: string) => {
     if (!activeTrip || !auth.token) return;
-    if (otpInput.length < 4) {
-      setError('Please enter the customer ride OTP');
+    const effectiveOtp = (customOtp || otpInput).trim();
+    if (effectiveOtp.length < 4) {
+      setError('Please enter the 6-digit Ride OTP or scan passenger QR code');
       return;
     }
     setActionLoading(true);
@@ -423,18 +425,35 @@ export function QueuePage({ auth }: QueuePageProps) {
     try {
       await api.post(
         `/trips/${activeTrip._id}/start`,
-        { otp: otpInput.length === 6 ? otpInput : `${otpInput}00` },
+        { otp: effectiveOtp },
         auth.token
       );
       setActiveTrip(prev => (prev ? { ...prev, status: 'TRIP_STARTED' } : null));
       setOtpInput('');
+      setCustomerQrModalOpen(false);
     } catch (e: any) {
-      // In development fallback, allow progression
-      setActiveTrip(prev => (prev ? { ...prev, status: 'TRIP_STARTED' } : null));
-      setOtpInput('');
+      setError(e?.message || 'Invalid trip OTP. Please check passenger phone or scan QR code.');
     } finally {
       setActionLoading(false);
     }
+  };
+
+  // Handler: Customer QR Code scanned by driver
+  const handleScanCustomerRideQR = (scannedText: string) => {
+    if (!scannedText) return;
+    let extractedOtp = scannedText.trim();
+    if (scannedText.startsWith('{')) {
+      try {
+        const parsed = JSON.parse(scannedText);
+        if (parsed.otp) extractedOtp = String(parsed.otp).trim();
+      } catch {}
+    } else if (scannedText.startsWith('GMRIDE:')) {
+      const parts = scannedText.split(':');
+      if (parts.length >= 3) extractedOtp = parts[2].trim();
+    }
+    setOtpInput(extractedOtp);
+    setCustomerQrModalOpen(false);
+    handleStartTrip(extractedOtp);
   };
 
   // Handler: Complete Trip
@@ -795,31 +814,57 @@ export function QueuePage({ auth }: QueuePageProps) {
           )}
 
           {activeTrip.status === 'DRIVER_ARRIVED' && (
-            <div className="space-y-3 pt-2">
-              <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 text-center">
-                <div className="text-xs text-slate-300 font-semibold mb-2">
-                  Ask customer for Ride Start OTP
+            <div className="space-y-4 pt-2">
+              {/* Option 1: Scan Customer QR Code */}
+              <div className="p-4 rounded-2xl bg-gradient-to-br from-emerald-950/70 to-slate-900 border border-emerald-500/40 shadow-lg text-center space-y-3">
+                <div className="flex items-center justify-center gap-2 text-emerald-400 font-bold text-sm">
+                  <QrCode className="w-5 h-5" />
+                  <span>Scan Passenger QR Code</span>
+                </div>
+                <p className="text-xs text-slate-300">
+                  Scan the verification QR code shown on the passenger's Go Mookambika app
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setCustomerQrModalOpen(true)}
+                  disabled={actionLoading}
+                  className="w-full py-3.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white font-bold text-sm shadow-md transition-all active:scale-95 flex items-center justify-center gap-2"
+                >
+                  <QrCode className="w-4 h-4" />
+                  <span>OPEN CAMERA QR SCANNER</span>
+                </button>
+              </div>
+
+              {/* Divider */}
+              <div className="flex items-center gap-3 text-slate-500 text-xs font-semibold uppercase tracking-wider">
+                <div className="h-px flex-1 bg-slate-800" />
+                <span>OR ENTER 6-DIGIT OTP</span>
+                <div className="h-px flex-1 bg-slate-800" />
+              </div>
+
+              {/* Option 2: 6-Digit OTP Input */}
+              <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 text-center space-y-3">
+                <div className="text-xs text-slate-300 font-semibold">
+                  Ask passenger for 6-digit Ride Start PIN
                 </div>
                 <input
                   type="tel"
                   maxLength={6}
                   value={otpInput}
                   onChange={e => setOtpInput(e.target.value.replace(/\D/g, ''))}
-                  placeholder="Enter OTP"
-                  className="w-44 mx-auto text-center font-mono text-2xl tracking-widest py-2 bg-slate-900 border border-emerald-500/40 rounded-lg text-white outline-none focus:border-emerald-400"
+                  placeholder="• • • • • •"
+                  className="w-52 mx-auto text-center font-mono font-bold text-2xl tracking-[0.25em] py-2.5 bg-slate-900 border border-emerald-500/40 rounded-xl text-emerald-400 outline-none focus:border-emerald-400 placeholder:text-slate-600"
                 />
-                <div className="text-[10px] text-slate-500 mt-1">
-                  Dev Mode: Enter <strong>123456</strong>
-                </div>
+                <button
+                  type="button"
+                  onClick={() => handleStartTrip()}
+                  disabled={actionLoading || otpInput.length < 4}
+                  className="w-full py-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-bold text-sm shadow-md transition-all active:scale-95 flex items-center justify-center gap-2"
+                >
+                  <Check className="w-4 h-4" />
+                  <span>VERIFY OTP & START TRIP</span>
+                </button>
               </div>
-
-              <button
-                onClick={handleStartTrip}
-                disabled={actionLoading}
-                className="w-full py-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm shadow-lg transition-all active:scale-98"
-              >
-                VERIFY OTP & START TRIP
-              </button>
             </div>
           )}
 
@@ -867,11 +912,23 @@ export function QueuePage({ auth }: QueuePageProps) {
         </div>
       )}
 
-      {/* QR Scanner Modal component */}
+      {/* Taxi Stand Queue QR Scanner Modal */}
       <QRScannerModal
         isOpen={qrModalOpen}
         onClose={() => setQrModalOpen(false)}
         onScanSuccess={handleQRScanSuccess}
+        loading={actionLoading}
+      />
+
+      {/* Customer Ride QR Scanner Modal */}
+      <QRScannerModal
+        isOpen={customerQrModalOpen}
+        onClose={() => setCustomerQrModalOpen(false)}
+        onScanSuccess={handleScanCustomerRideQR}
+        onScan={handleScanCustomerRideQR}
+        title="Scan Customer Ride QR"
+        subtitle="Align passenger ride QR within frame"
+        hideStands={true}
         loading={actionLoading}
       />
     </div>

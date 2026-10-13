@@ -60,6 +60,7 @@ export interface IBooking extends Document {
   assignedDriverId?: Types.ObjectId;
   assignedVehicleId?: Types.ObjectId;
   driverAssignedAt?: Date;
+  startOTP?: string;
   originTaxiStandId?: Types.ObjectId;
   destinationTaxiStandId?: Types.ObjectId;
   notes?: string;
@@ -126,6 +127,7 @@ const bookingSchema = new Schema<IBooking>(
       ref: 'Vehicle',
     },
     driverAssignedAt: Date,
+    startOTP: { type: String, select: true },
     originTaxiStandId: { type: Schema.Types.ObjectId, ref: 'TaxiStand' },
     destinationTaxiStandId: { type: Schema.Types.ObjectId, ref: 'TaxiStand' },
     notes: { type: String, maxlength: 500 },

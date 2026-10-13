@@ -28,6 +28,9 @@ interface QRScannerModalProps {
   onScan?: (token: string) => void;
   onScanSuccess?: (token: string) => void;
   loading?: boolean;
+  title?: string;
+  subtitle?: string;
+  hideStands?: boolean;
 }
 
 export function QRScannerModal({
@@ -36,6 +39,9 @@ export function QRScannerModal({
   onScan,
   onScanSuccess,
   loading = false,
+  title = 'Scan Taxi Stand QR',
+  subtitle = 'Position QR within frame',
+  hideStands = false,
 }: QRScannerModalProps) {
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [isScanning, setIsScanning] = useState(false);
@@ -361,8 +367,8 @@ export function QRScannerModal({
             <QrCode className="w-4 h-4" />
           </div>
           <div>
-            <h3 className="text-white font-bold text-sm">Scan Taxi Stand QR</h3>
-            <p className="text-[11px] text-slate-400">Position QR within frame</p>
+            <h3 className="text-white font-bold text-sm">{title}</h3>
+            <p className="text-[11px] text-slate-400">{subtitle}</p>
           </div>
         </div>
 
@@ -488,81 +494,83 @@ export function QRScannerModal({
       </div>
 
       {/* Bottom Section: Quick Stand Selection & Manual Token */}
-      <div className="w-full max-w-sm mx-auto space-y-2.5 z-10">
-        <button
-          onClick={() => setShowManual(!showManual)}
-          className="w-full py-2 text-xs text-slate-400 hover:text-white flex items-center justify-center gap-1"
-        >
-          <span>
-            {showManual
-              ? 'Hide Stand Selector / Manual Entry'
-              : 'Cannot scan? Select stand directly or paste token'}
-          </span>
-          {showManual ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-        </button>
+      {!hideStands && (
+        <div className="w-full max-w-sm mx-auto space-y-2.5 z-10">
+          <button
+            onClick={() => setShowManual(!showManual)}
+            className="w-full py-2 text-xs text-slate-400 hover:text-white flex items-center justify-center gap-1"
+          >
+            <span>
+              {showManual
+                ? 'Hide Stand Selector / Manual Entry'
+                : 'Cannot scan? Select stand directly or paste token'}
+            </span>
+            {showManual ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+          </button>
 
-        {showManual && (
-          <div className="p-3.5 rounded-2xl bg-slate-900 border border-slate-800 space-y-3">
-            {/* Active Taxi Stands Quick Selection */}
-            {stands.length > 0 && (
+          {showManual && (
+            <div className="p-3.5 rounded-2xl bg-slate-900 border border-slate-800 space-y-3">
+              {/* Active Taxi Stands Quick Selection */}
+              {stands.length > 0 && (
+                <div>
+                  <div className="text-xs text-slate-300 font-semibold mb-1.5">
+                    Select Stand Directly:
+                  </div>
+                  <div className="grid grid-cols-1 gap-1.5 max-h-36 overflow-y-auto pr-1">
+                    {stands.map(stand => (
+                      <button
+                        key={stand._id}
+                        onClick={() => {
+                          if (stand.qrToken) {
+                            handleSuccessfulScan(stand.qrToken);
+                          }
+                        }}
+                        disabled={!stand.qrToken || loading}
+                        className="flex items-center justify-between p-2 rounded-xl bg-slate-950 hover:bg-emerald-950/40 hover:border-emerald-500/40 border border-slate-800 text-left text-xs text-white transition-all disabled:opacity-50"
+                      >
+                        <div className="flex items-center gap-2 truncate font-medium">
+                          <Car className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                          <span className="truncate">{stand.name}</span>
+                        </div>
+                        <span className="text-[11px] text-emerald-400 font-semibold shrink-0 ml-2 flex items-center gap-0.5">
+                          <span>Check In</span>
+                          <ArrowRight className="w-3 h-3" />
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Manual Token Paste */}
               <div>
-                <div className="text-xs text-slate-300 font-semibold mb-1.5">
-                  Select Stand Directly:
+                <div className="text-xs text-slate-400 mb-1">Or paste Stand QR Token:</div>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    placeholder="Paste QR token string..."
+                    value={manualToken}
+                    onChange={e => setManualToken(e.target.value)}
+                    className="input-field !py-2 !text-xs flex-1 font-mono bg-slate-950 border-slate-800 text-white rounded-xl"
+                    onKeyDown={e => {
+                      if (e.key === 'Enter' && manualToken.trim()) {
+                        handleSuccessfulScan(manualToken.trim());
+                      }
+                    }}
+                  />
+                  <button
+                    onClick={() => manualToken.trim() && handleSuccessfulScan(manualToken.trim())}
+                    disabled={!manualToken.trim() || loading}
+                    className="btn-primary !w-auto !py-2 px-4 !text-xs whitespace-nowrap bg-emerald-600 hover:bg-emerald-500 rounded-xl font-bold"
+                  >
+                    Join
+                  </button>
                 </div>
-                <div className="grid grid-cols-1 gap-1.5 max-h-36 overflow-y-auto pr-1">
-                  {stands.map(stand => (
-                    <button
-                      key={stand._id}
-                      onClick={() => {
-                        if (stand.qrToken) {
-                          handleSuccessfulScan(stand.qrToken);
-                        }
-                      }}
-                      disabled={!stand.qrToken || loading}
-                      className="flex items-center justify-between p-2 rounded-xl bg-slate-950 hover:bg-emerald-950/40 hover:border-emerald-500/40 border border-slate-800 text-left text-xs text-white transition-all disabled:opacity-50"
-                    >
-                      <div className="flex items-center gap-2 truncate font-medium">
-                        <Car className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                        <span className="truncate">{stand.name}</span>
-                      </div>
-                      <span className="text-[11px] text-emerald-400 font-semibold shrink-0 ml-2 flex items-center gap-0.5">
-                        <span>Check In</span>
-                        <ArrowRight className="w-3 h-3" />
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Manual Token Paste */}
-            <div>
-              <div className="text-xs text-slate-400 mb-1">Or paste Stand QR Token:</div>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  placeholder="Paste QR token string..."
-                  value={manualToken}
-                  onChange={e => setManualToken(e.target.value)}
-                  className="input-field !py-2 !text-xs flex-1 font-mono bg-slate-950 border-slate-800 text-white rounded-xl"
-                  onKeyDown={e => {
-                    if (e.key === 'Enter' && manualToken.trim()) {
-                      handleSuccessfulScan(manualToken.trim());
-                    }
-                  }}
-                />
-                <button
-                  onClick={() => manualToken.trim() && handleSuccessfulScan(manualToken.trim())}
-                  disabled={!manualToken.trim() || loading}
-                  className="btn-primary !w-auto !py-2 px-4 !text-xs whitespace-nowrap bg-emerald-600 hover:bg-emerald-500 rounded-xl font-bold"
-                >
-                  Join
-                </button>
               </div>
             </div>
-          </div>
-        )}
-      </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

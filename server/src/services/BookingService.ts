@@ -148,6 +148,7 @@ export class BookingService {
     });
 
     const bookingNumber = await generateBookingNumber();
+    const startOTP = Math.floor(100000 + Math.random() * 900000).toString();
 
     const normalizedPaymentOption = paymentOption === 'PAY_AT_END' ? 'CASH' : paymentOption;
 
@@ -170,6 +171,7 @@ export class BookingService {
       },
       paymentOption: normalizedPaymentOption,
       notes,
+      startOTP,
     });
 
     logger.info(`Booking created: ${bookingNumber} for customer ${customerId}`);
@@ -331,8 +333,8 @@ export class BookingService {
       await redis.del(offerKey).catch(() => {});
     }
 
-    // Generate trip start OTP
-    const startOTP = Math.floor(100000 + Math.random() * 900000).toString();
+    // Generate trip start OTP (reuse booking OTP or generate new 6-digit PIN)
+    const startOTP = booking.startOTP || Math.floor(100000 + Math.random() * 900000).toString();
     const startOTPHash = await argon2.hash(startOTP);
     const tripNumber = await generateTripNumber();
 
@@ -370,6 +372,7 @@ export class BookingService {
               assignedDriverId: driver._id,
               assignedVehicleId: vehicle._id,
               driverAssignedAt: new Date(),
+              startOTP,
             },
             { session }
           );
@@ -422,6 +425,7 @@ export class BookingService {
           assignedDriverId: driver._id,
           assignedVehicleId: vehicle._id,
           driverAssignedAt: new Date(),
+          startOTP,
         });
 
         await QueueEntry.findOneAndUpdate(

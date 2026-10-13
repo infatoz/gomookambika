@@ -386,6 +386,7 @@ export function UberBookingPage({
           _id: string;
           bookingNumber: string;
           status: string;
+          startOTP?: string;
           pickupLocation: any;
           dropLocation: any;
           fareSnapshot: any;
@@ -424,6 +425,7 @@ export function UberBookingPage({
           pickupLocation: newBooking.pickupLocation,
           dropLocation: newBooking.dropLocation,
           fareSnapshot: newBooking.fareSnapshot,
+          startOTP: newBooking.startOTP,
         });
         setViewMode('active_trip');
       }
