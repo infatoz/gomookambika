@@ -9,14 +9,14 @@ const router = Router();
 // Public location search (for customer pickup/destination selection)
 router.get('/', optionalAuth, async (req: Request, res: Response) => {
   const { search, type, lat, lng } = req.query;
-  const filter: Record<string, unknown> = { status: Status.ACTIVE, bookingEnabled: true };
+  const filter: Record<string, unknown> = { status: Status.ACTIVE, bookingEnabled: { $ne: false } };
   if (type) filter.type = type;
   if (search) filter.$or = [
     { name: { $regex: search, $options: 'i' } },
     { 'address.city': { $regex: search, $options: 'i' } },
   ];
 
-  const locations = await Location.find(filter).limit(20).sort({ name: 1 });
+  const locations = await Location.find(filter).limit(100).sort({ name: 1 });
   res.json({ success: true, data: locations });
 });
 

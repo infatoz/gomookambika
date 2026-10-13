@@ -1,12 +1,14 @@
 import { useState } from 'react';
-import { User, Menu, X, Car, Clock, Shield, LogOut, ChevronRight, Phone } from 'lucide-react';
+import { User, Menu, X, Car, Clock, Shield, LogOut, ChevronRight, Phone, Compass } from 'lucide-react';
 
 import { AuthState } from '@/lib/api';
 
+export type NavTab = 'ride' | 'local' | 'trips' | 'profile';
+
 interface UberNavbarProps {
   auth: AuthState;
-  activeTab: 'ride' | 'trips' | 'profile';
-  onSelectTab: (tab: 'ride' | 'trips' | 'profile') => void;
+  activeTab: NavTab;
+  onSelectTab: (tab: NavTab) => void;
   onOpenLogin: () => void;
   onLogout: () => void;
 }
@@ -36,22 +38,36 @@ export function UberNavbar({
             </button>
 
             {/* Desktop Navigation Tabs */}
-            <nav className="hidden md:flex items-center gap-1">
+            <nav className="hidden md:flex items-center gap-1.5">
               <button
                 onClick={() => onSelectTab('ride')}
                 className={`px-4 py-2 rounded-full text-sm font-semibold transition-all ${
                   activeTab === 'ride'
-                    ? 'bg-black text-white'
+                    ? 'bg-black text-white shadow-sm'
                     : 'text-neutral-700 hover:bg-neutral-100'
                 }`}
               >
                 Ride
               </button>
               <button
+                onClick={() => onSelectTab('local')}
+                className={`flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-semibold transition-all ${
+                  activeTab === 'local'
+                    ? 'bg-black text-white shadow-sm'
+                    : 'text-neutral-700 hover:bg-neutral-100'
+                }`}
+              >
+                <Compass className="w-3.5 h-3.5" />
+                <span>Local Ride</span>
+                <span className="text-[10px] px-1.5 py-0.2 rounded-full font-bold bg-amber-400 text-black ml-0.5">
+                  Fixed
+                </span>
+              </button>
+              <button
                 onClick={() => onSelectTab('trips')}
                 className={`px-4 py-2 rounded-full text-sm font-semibold transition-all ${
                   activeTab === 'trips'
-                    ? 'bg-black text-white'
+                    ? 'bg-black text-white shadow-sm'
                     : 'text-neutral-700 hover:bg-neutral-100'
                 }`}
               >
@@ -160,6 +176,27 @@ export function UberNavbar({
                   <span>Book a Ride</span>
                 </div>
                 <ChevronRight className="w-4 h-4 text-neutral-400" />
+              </button>
+
+              <button
+                onClick={() => {
+                  onSelectTab('local');
+                  setDrawerOpen(false);
+                }}
+                className={`w-full flex items-center justify-between px-3 py-3 rounded-xl text-sm font-semibold transition-colors ${
+                  activeTab === 'local' ? 'bg-neutral-100 text-black' : 'hover:bg-neutral-50 text-neutral-800'
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <Compass className="w-5 h-5" />
+                  <span>Local Ride & Fixed Rates</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[10px] px-2 py-0.5 bg-amber-400 text-black font-bold rounded-full">
+                    Fixed
+                  </span>
+                  <ChevronRight className="w-4 h-4 text-neutral-400" />
+                </div>
               </button>
 
               <button
