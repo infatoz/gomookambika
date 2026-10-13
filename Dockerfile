@@ -44,6 +44,7 @@ RUN apk add --no-cache --virtual .build-deps python3 make g++ \
 # 3. Builder Stage: Full source code & monorepo build
 # ------------------------------------------------------------------------------
 FROM dependencies AS builder
+ARG CACHEBUST=""
 COPY packages/ ./packages/
 COPY server/ ./server/
 COPY apps/ ./apps/

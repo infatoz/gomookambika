@@ -44,11 +44,12 @@ server {
     }
 
     # --------------------------------------------------------------------------
-    # PWA SERVICE WORKERS & WEB MANIFEST (Never Cache)
+    # PWA SERVICE WORKERS, WEB MANIFEST & HTML (Never Cache)
     # --------------------------------------------------------------------------
-    location ~* (sw\.js|registerSW\.js|manifest\.webmanifest)$ {
+    location ~* (sw\.js|registerSW\.js|manifest\.webmanifest|index\.html)$ {
         expires -1;
-        add_header Cache-Control "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0";
+        add_header Cache-Control "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0" always;
+        add_header Pragma "no-cache" always;
     }
 
     # --------------------------------------------------------------------------
@@ -104,6 +105,8 @@ server {
     # --------------------------------------------------------------------------
     location / {
         try_files $uri $uri/ /index.html;
-        add_header Cache-Control "no-cache, must-revalidate";
+        expires -1;
+        add_header Cache-Control "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0" always;
+        add_header Pragma "no-cache" always;
     }
 }

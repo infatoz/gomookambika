@@ -21,6 +21,7 @@ COPY apps/admin-pwa/package.json ./apps/admin-pwa/
 RUN pnpm install --frozen-lockfile
 
 # 2. Copy source and build
+ARG CACHEBUST=""
 COPY packages/ ./packages/
 COPY apps/driver-pwa/ ./apps/driver-pwa/
 COPY tsconfig.json* ./

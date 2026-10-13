@@ -17,6 +17,7 @@ COPY apps/customer-pwa/package.json ./apps/customer-pwa/
 RUN pnpm install --filter customer-pwa... --frozen-lockfile
 
 # 2. Copy source and build
+ARG CACHEBUST=""
 COPY packages/ ./packages/
 COPY apps/customer-pwa/ ./apps/customer-pwa/
 COPY tsconfig.json* ./

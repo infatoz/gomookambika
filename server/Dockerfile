@@ -25,6 +25,7 @@ RUN apk add --no-cache --virtual .build-deps python3 make g++ \
   && apk del .build-deps
 
 # Copy source and build TypeScript to dist
+ARG CACHEBUST=""
 COPY packages/ ./packages/
 COPY server/ ./server/
 COPY apps/ ./apps/
