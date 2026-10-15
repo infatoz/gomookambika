@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Loader2, Lock, Mail, Landmark, ArrowRight, ShieldCheck, Activity, Users } from 'lucide-react';
+import { Loader2, Lock, Mail, Landmark, ArrowRight, ShieldCheck, Activity, Users, AlertCircle } from 'lucide-react';
 import { useAuthStore } from '@/store/authStore';
 import apiClient from '@/lib/apiClient';
+import { antMessage } from '@/lib/antd';
 
 const features = [
   { icon: Activity, label: 'Real-time Operations', desc: 'Monitor queue & trips live' },
@@ -20,16 +21,37 @@ export function LoginPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (loading) return;
     setLoading(true);
     setError('');
     try {
-      const response = await apiClient.post('/auth/admin/login', { email, password });
+      const response = await apiClient.post('/auth/admin/login', {
+        email: email.trim(),
+        password,
+      });
       const { user, tokens } = response.data.data;
       setAuth(user, tokens);
+      antMessage.success(`Welcome back, ${user.name || 'Admin'}!`);
       navigate('/');
     } catch (err: unknown) {
-      const axiosErr = err as { response?: { data?: { message?: string } } };
-      setError(axiosErr.response?.data?.message ?? 'Invalid credentials. Please try again.');
+      const axiosErr = err as {
+        response?: {
+          status?: number;
+          data?: {
+            message?: string;
+            error?: { message?: string };
+          };
+        };
+        message?: string;
+      };
+      const message =
+        axiosErr.response?.data?.message ||
+        axiosErr.response?.data?.error?.message ||
+        (axiosErr.response?.status === 401
+          ? 'Invalid email or password. Please verify your credentials and try again.'
+          : axiosErr.message || 'Unable to sign in. Please try again.');
+      setError(message);
+      antMessage.error(message);
     } finally {
       setLoading(false);
     }
@@ -206,15 +228,29 @@ export function LoginPage() {
                 </div>
               </div>
 
-              {/* Error */}
+              {/* Error Alert */}
               {error && (
-                <div style={{
-                  padding: '0.75rem 1rem', borderRadius: '8px',
-                  background: '#FEF2F2', border: '1px solid #FECACA',
-                  color: '#991B1B', fontSize: '0.8125rem', display: 'flex', alignItems: 'center', gap: '0.5rem',
-                }}>
-                  <ShieldCheck size={14} style={{ flexShrink: 0 }} />
-                  {error}
+                <div
+                  role="alert"
+                  style={{
+                    padding: '0.875rem 1rem',
+                    borderRadius: '10px',
+                    background: '#FEF2F2',
+                    border: '1px solid #FECACA',
+                    color: '#991B1B',
+                    fontSize: '0.8125rem',
+                    display: 'flex',
+                    alignItems: 'flex-start',
+                    gap: '0.625rem',
+                  }}
+                >
+                  <AlertCircle size={16} style={{ flexShrink: 0, marginTop: '2px', color: '#DC2626' }} />
+                  <div style={{ flex: 1, lineHeight: 1.45 }}>
+                    <div style={{ fontWeight: 600, color: '#991B1B', marginBottom: '2px' }}>
+                      Sign In Failed
+                    </div>
+                    <div style={{ color: '#B91C1C' }}>{error}</div>
+                  </div>
                 </div>
               )}
 

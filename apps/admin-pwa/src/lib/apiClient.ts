@@ -22,7 +22,15 @@ apiClient.interceptors.response.use(
   async error => {
     const originalRequest = error.config;
 
-    if (error.response?.status === 401 && !originalRequest._retry) {
+    // Do NOT intercept 401 on authentication endpoints (e.g. login, refresh, otp)
+    const requestUrl = originalRequest?.url || '';
+    const isAuthEndpoint =
+      requestUrl.includes('/auth/admin/login') ||
+      requestUrl.includes('/auth/login') ||
+      requestUrl.includes('/auth/refresh') ||
+      requestUrl.includes('/auth/driver');
+
+    if (error.response?.status === 401 && !originalRequest?._retry && !isAuthEndpoint) {
       originalRequest._retry = true;
 
       const { tokens, updateTokens, clearAuth } = useAuthStore.getState();
@@ -38,11 +46,15 @@ apiClient.interceptors.response.use(
           return apiClient(originalRequest);
         } catch {
           clearAuth();
-          window.location.href = '/login';
+          if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
+            window.location.href = '/login';
+          }
         }
       } else {
         clearAuth();
-        window.location.href = '/login';
+        if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
+          window.location.href = '/login';
+        }
       }
     }
 
