@@ -4,7 +4,7 @@ import { QueuePage } from './pages/QueuePage';
 import { TripPage } from './pages/TripPage';
 import { EarningsPage } from './pages/EarningsPage';
 import { DriverProfilePage } from './pages/DriverProfilePage';
-import { Car, ClipboardList, Wallet, User } from 'lucide-react';
+import { Navigation, ClipboardList, Wallet, User } from 'lucide-react';
 
 type Page = 'queue' | 'trips' | 'earnings' | 'profile';
 
@@ -75,26 +75,38 @@ function App() {
     return <OTPLoginPage onLogin={handleLogin} />;
   }
 
-  const tabs: { id: Page; label: string; icon: typeof Car }[] = [
-    { id: 'queue', label: 'Captain Queue', icon: Car },
-    { id: 'trips', label: 'My Trips', icon: ClipboardList },
+  const tabs: { id: Page; label: string; icon: typeof Navigation }[] = [
+    { id: 'queue', label: 'Drive', icon: Navigation },
+    { id: 'trips', label: 'Trips', icon: ClipboardList },
     { id: 'earnings', label: 'Earnings', icon: Wallet },
-    { id: 'profile', label: 'Profile', icon: User },
+    { id: 'profile', label: 'Account', icon: User },
   ];
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col justify-between selection:bg-emerald-500 selection:text-white font-sans antialiased">
+    <div className="min-h-screen bg-black text-white flex flex-col justify-between selection:bg-emerald-500 selection:text-black font-sans antialiased">
       {/* Mobile-constrained app shell */}
       <main className="w-full max-w-md mx-auto flex-1 pb-24 relative overflow-x-hidden">
-        {page === 'queue' && <QueuePage auth={auth} onUpdateDriver={handleUpdateDriver} />}
+        {page === 'queue' && (
+          <QueuePage
+            auth={auth}
+            onUpdateDriver={handleUpdateDriver}
+            onNavigateToEarnings={() => setPage('earnings')}
+          />
+        )}
         {page === 'trips' && <TripPage auth={auth} />}
         {page === 'earnings' && <EarningsPage auth={auth} />}
-        {page === 'profile' && <DriverProfilePage auth={auth} onLogout={handleLogout} onUpdateDriver={handleUpdateDriver} />}
+        {page === 'profile' && (
+          <DriverProfilePage
+            auth={auth}
+            onLogout={handleLogout}
+            onUpdateDriver={handleUpdateDriver}
+          />
+        )}
       </main>
 
-      {/* Uber / Namma Yatri style Native Mobile Bottom Bar */}
+      {/* Uber Driver Native Bottom Navigation Bar */}
       <nav className="fixed bottom-0 left-0 right-0 z-40">
-        <div className="w-full max-w-md mx-auto bg-slate-900/95 backdrop-blur-xl border-t border-slate-800/80 px-2 py-1.5 shadow-[0_-8px_24px_rgba(0,0,0,0.5)]">
+        <div className="w-full max-w-md mx-auto bg-black/95 backdrop-blur-2xl border-t border-white/[0.08] px-3 py-1.5 shadow-[0_-12px_32px_rgba(0,0,0,0.85)]">
           <div className="flex items-center justify-around">
             {tabs.map(tab => {
               const Icon = tab.icon;
@@ -103,22 +115,24 @@ function App() {
                 <button
                   key={tab.id}
                   onClick={() => setPage(tab.id)}
-                  className={`flex flex-col items-center justify-center py-1.5 px-3 rounded-2xl transition-all duration-200 active:scale-95 ${
+                  className={`flex flex-col items-center justify-center py-1.5 px-3 rounded-2xl transition-all duration-200 active:scale-90 ${
                     isActive
-                      ? 'text-emerald-400 font-bold'
-                      : 'text-slate-400 hover:text-slate-200 font-medium'
+                      ? 'text-white font-bold'
+                      : 'text-neutral-400 hover:text-neutral-200 font-medium'
                   }`}
                 >
                   <div
-                    className={`w-10 h-8 rounded-xl flex items-center justify-center transition-all ${
+                    className={`w-11 h-8 rounded-xl flex items-center justify-center transition-all ${
                       isActive
-                        ? 'bg-emerald-500/15 text-emerald-400 scale-105'
-                        : 'text-slate-400'
+                        ? 'bg-white text-black shadow-md scale-105'
+                        : 'text-neutral-400 hover:text-white'
                     }`}
                   >
                     <Icon className="w-5 h-5" strokeWidth={isActive ? 2.5 : 2} />
                   </div>
-                  <span className="text-[11px] tracking-tight mt-0.5">{tab.label}</span>
+                  <span className={`text-[11px] tracking-tight mt-1 transition-colors ${isActive ? 'text-white font-bold' : 'text-neutral-400'}`}>
+                    {tab.label}
+                  </span>
                 </button>
               );
             })}

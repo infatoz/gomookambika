@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { api } from '@/lib/api';
-import { Car, ShieldCheck, ArrowRight, AlertCircle, ArrowLeft, KeyRound } from 'lucide-react';
+import { Car, ShieldCheck, ArrowRight, AlertCircle, ArrowLeft } from 'lucide-react';
 
 interface OTPLoginPageProps {
   onLogin: (
@@ -25,7 +25,7 @@ export function OTPLoginPage({ onLogin }: OTPLoginPageProps) {
   const handleRequestOTP = async () => {
     const raw = cleanPhone(phone);
     if (raw.length !== 10 || !/^[6-9]\d{9}$/.test(raw)) {
-      setError('Please enter a valid 10-digit mobile number starting with 6-9');
+      setError('Please enter a valid 10-digit mobile number');
       return;
     }
     const phoneNum = `+91${raw}`;
@@ -45,7 +45,7 @@ export function OTPLoginPage({ onLogin }: OTPLoginPageProps) {
         });
       }, 1000);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Failed to send OTP');
+      setError(e instanceof Error ? e.message : 'Failed to send OTP. Please check your network.');
     } finally {
       setLoading(false);
     }
@@ -61,7 +61,6 @@ export function OTPLoginPage({ onLogin }: OTPLoginPageProps) {
     setError('');
     setLoading(true);
     try {
-      // Step 1: verify OTP — get access token + user
       const res = await api.post<{
         data: { tokens: { accessToken: string }; user: { _id: string; name: string; phone: string; role: string } };
       }>('/auth/otp/verify', { phone: phoneNum, otp, purpose: 'LOGIN', role: 'DRIVER' });
@@ -69,7 +68,6 @@ export function OTPLoginPage({ onLogin }: OTPLoginPageProps) {
       const token = res.data.tokens.accessToken;
       const user = res.data.user;
 
-      // Step 2: fetch driver profile to verify driver authorization
       let driverProfile = { _id: user._id, name: user.name, phone: user.phone, status: 'AVAILABLE', driverCode: '' };
       try {
         const dRes = await api.get<{
@@ -84,7 +82,7 @@ export function OTPLoginPage({ onLogin }: OTPLoginPageProps) {
             driverCode: dRes.data.driverCode || '',
           };
         }
-      } catch (err: unknown) {
+      } catch {
         if (user.role !== 'DRIVER' && user.role !== 'SUPER_ADMIN' && user.role !== 'ASSOCIATION_ADMIN') {
           setError('This number is not registered as an authorized captain. Please contact the association admin.');
           setLoading(false);
@@ -101,29 +99,28 @@ export function OTPLoginPage({ onLogin }: OTPLoginPageProps) {
   };
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center px-6 bg-slate-950 text-slate-100">
+    <div className="min-h-screen min-h-[100dvh] flex flex-col justify-between px-6 py-10 bg-black text-white max-w-md mx-auto">
       {/* Brand Header */}
-      <div className="mb-8 text-center space-y-2">
-        <div className="w-16 h-16 rounded-3xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center mx-auto shadow-[0_8px_30px_rgba(16,185,129,0.3)] border border-emerald-400/40">
-          <Car className="w-8 h-8 text-white" strokeWidth={2.5} />
+      <div className="space-y-4 pt-8">
+        <div className="w-14 h-14 rounded-2xl bg-white text-black flex items-center justify-center shadow-[0_8px_30px_rgba(255,255,255,0.15)]">
+          <Car className="w-8 h-8 stroke-[2.5]" />
         </div>
         <div>
-          <h1 className="text-2xl font-black tracking-tight text-white">Captain Partner App</h1>
-          <p className="text-xs text-slate-400 mt-0.5">Sri Mookambika Tourist Taxi Association</p>
+          <h1 className="text-3xl font-black tracking-tight text-white">Captain Partner</h1>
+          <p className="text-xs text-neutral-400 mt-1">Sri Mookambika Tourist Taxi Association</p>
         </div>
       </div>
 
-      <div className="w-full max-w-sm space-y-4">
+      {/* Main Form Body */}
+      <div className="w-full space-y-4 my-auto">
         {step === 'phone' ? (
           <>
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <label className="text-xs uppercase tracking-wider text-slate-400 font-bold">
-                  Registered Mobile Number
-                </label>
-              </div>
+            <div className="space-y-2">
+              <label className="text-xs uppercase tracking-wider text-neutral-400 font-bold block">
+                Enter Mobile Number
+              </label>
               <div className="flex gap-2">
-                <div className="px-3.5 py-3 rounded-2xl bg-slate-900 border border-slate-800 text-slate-200 font-mono font-bold text-sm flex items-center shrink-0">
+                <div className="px-4 py-3.5 rounded-2xl bg-neutral-900 border border-white/[0.1] text-white font-mono font-black text-sm flex items-center shrink-0">
                   +91
                 </div>
                 <input
@@ -136,7 +133,7 @@ export function OTPLoginPage({ onLogin }: OTPLoginPageProps) {
                     setPhone(cleanPhone(e.target.value));
                     setError('');
                   }}
-                  className="input-field flex-1 text-lg font-mono tracking-wider bg-slate-900 border border-slate-800 rounded-2xl py-3 px-4 text-white focus:border-emerald-500"
+                  className="input-field !text-lg font-mono tracking-wider flex-1"
                   autoFocus
                   onKeyDown={e => e.key === 'Enter' && handleRequestOTP()}
                 />
@@ -144,7 +141,7 @@ export function OTPLoginPage({ onLogin }: OTPLoginPageProps) {
             </div>
 
             {error && (
-              <div className="flex items-center gap-2 p-3 bg-rose-950/60 border border-rose-800/80 rounded-xl text-rose-300 text-xs">
+              <div className="flex items-center gap-2 p-3 bg-rose-950/70 border border-rose-800/80 rounded-2xl text-rose-300 text-xs">
                 <AlertCircle className="w-4 h-4 shrink-0" />
                 <span>{error}</span>
               </div>
@@ -153,17 +150,17 @@ export function OTPLoginPage({ onLogin }: OTPLoginPageProps) {
             <button
               onClick={handleRequestOTP}
               disabled={loading || phone.length < 10}
-              className="btn-primary w-full py-4 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm transition-all shadow-lg shadow-emerald-600/30 flex items-center justify-center gap-2 disabled:opacity-50"
+              className="btn-uber-primary"
             >
-              <span>{loading ? 'Sending Verification Code...' : 'Continue to Sign In'}</span>
+              <span>{loading ? 'Sending Code...' : 'Continue'}</span>
               <ArrowRight className="w-4 h-4" />
             </button>
           </>
         ) : (
           <>
-            <div className="text-center space-y-1">
-              <div className="text-slate-300 text-xs">
-                Verification OTP sent to <span className="font-bold text-white font-mono">+91 {phone}</span>
+            <div className="space-y-1">
+              <div className="text-xs text-neutral-400">
+                Code sent to <span className="font-bold text-white font-mono">+91 {phone}</span>
               </div>
               <button
                 onClick={() => {
@@ -174,13 +171,13 @@ export function OTPLoginPage({ onLogin }: OTPLoginPageProps) {
                 className="text-emerald-400 text-xs hover:underline inline-flex items-center gap-1 font-semibold"
               >
                 <ArrowLeft className="w-3 h-3" />
-                <span>Change mobile number</span>
+                <span>Edit number</span>
               </button>
             </div>
 
-            <div>
-              <label className="block text-xs uppercase tracking-wider text-slate-400 mb-2 font-bold text-center">
-                Enter 6-digit Verification Code
+            <div className="space-y-2">
+              <label className="block text-xs uppercase tracking-wider text-neutral-400 font-bold">
+                6-Digit Verification PIN
               </label>
               <input
                 type="tel"
@@ -192,14 +189,14 @@ export function OTPLoginPage({ onLogin }: OTPLoginPageProps) {
                   setOtp(e.target.value.replace(/\D/g, '').slice(0, 6));
                   setError('');
                 }}
-                className="w-full text-center text-3xl tracking-widest font-mono py-3.5 bg-slate-900 border border-slate-800 rounded-2xl text-white outline-none focus:border-emerald-500"
+                className="w-full text-center text-3xl tracking-[0.25em] font-mono font-bold py-3.5 bg-neutral-900 border border-white/[0.1] rounded-2xl text-white outline-none focus:border-emerald-500"
                 autoFocus
                 onKeyDown={e => e.key === 'Enter' && handleVerifyOTP()}
               />
             </div>
 
             {error && (
-              <div className="flex items-center gap-2 p-3 bg-rose-950/60 border border-rose-800/80 rounded-xl text-rose-300 text-xs text-center justify-center">
+              <div className="flex items-center gap-2 p-3 bg-rose-950/70 border border-rose-800/80 rounded-2xl text-rose-300 text-xs">
                 <AlertCircle className="w-4 h-4 shrink-0" />
                 <span>{error}</span>
               </div>
@@ -208,23 +205,28 @@ export function OTPLoginPage({ onLogin }: OTPLoginPageProps) {
             <button
               onClick={handleVerifyOTP}
               disabled={loading || otp.length < 6}
-              className="btn-primary w-full py-4 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm transition-all shadow-lg shadow-emerald-600/30 flex items-center justify-center gap-2 disabled:opacity-50"
+              className="btn-uber-primary"
             >
-              <span>{loading ? 'Verifying...' : 'Sign In as Captain Partner'}</span>
-              <ShieldCheck className="w-4 h-4" />
+              <span>{loading ? 'Verifying...' : 'Sign In'}</span>
+              <ShieldCheck className="w-4 h-4 stroke-[2.5]" />
             </button>
 
             <div className="text-center pt-2">
               <button
                 onClick={handleRequestOTP}
                 disabled={loading || resendCooldown > 0}
-                className="text-xs text-slate-400 hover:text-white disabled:opacity-50"
+                className="text-xs text-neutral-400 hover:text-white disabled:opacity-40"
               >
-                {resendCooldown > 0 ? `Resend OTP in ${resendCooldown}s` : 'Resend OTP'}
+                {resendCooldown > 0 ? `Resend code in ${resendCooldown}s` : 'Resend code'}
               </button>
             </div>
           </>
         )}
+      </div>
+
+      {/* Footer Info */}
+      <div className="text-center text-[11px] text-neutral-500 pb-2">
+        Official Driver App • Sri Mookambika Association
       </div>
     </div>
   );

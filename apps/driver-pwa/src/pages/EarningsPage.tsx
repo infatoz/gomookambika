@@ -4,17 +4,21 @@ import {
   Wallet,
   TrendingUp,
   IndianRupee,
-  Calendar,
-  Clock,
   Car,
   Award,
   ArrowUpRight,
   ShieldCheck,
   RefreshCw,
+  QrCode,
+  CheckCircle2,
 } from 'lucide-react';
 
 interface AuthState {
   token: string | null;
+  driver?: {
+    upiId?: string;
+    upiBeneficiaryName?: string;
+  } | null;
 }
 
 interface EarningsPageProps {
@@ -43,7 +47,6 @@ export function EarningsPage({ auth }: EarningsPageProps) {
       const res = await api.get<{ data: EarningsSummary }>('/driver/earnings', auth.token);
       setEarnings(res.data);
     } catch {
-      // Default initial metrics
       setEarnings({
         today: 0,
         thisWeek: 0,
@@ -69,32 +72,33 @@ export function EarningsPage({ auth }: EarningsPageProps) {
       : earnings?.thisMonth ?? 0;
 
   return (
-    <div className="px-4 py-5 space-y-4">
-      {/* Header */}
-      <div className="flex items-center justify-between bg-slate-900/90 p-3.5 rounded-2xl border border-slate-800">
+    <div className="px-3.5 py-3 space-y-4 safe-area-top">
+      {/* Top Header */}
+      <div className="flex items-center justify-between bg-neutral-900/90 backdrop-blur-xl px-4 py-3 rounded-2xl border border-white/[0.08] shadow-lg">
         <div>
-          <h1 className="text-xl font-bold text-white">Earnings & Payouts</h1>
-          <div className="text-xs text-slate-400 mt-0.5">Direct Association Payouts</div>
+          <h1 className="text-lg font-black text-white tracking-tight">Earnings</h1>
+          <div className="text-xs text-neutral-400 mt-0.5">Direct Payouts & Settlement</div>
         </div>
         <button
           onClick={fetchEarnings}
           disabled={loading}
-          className="p-2 rounded-xl bg-slate-800 text-slate-400 hover:text-white transition-colors"
+          className="p-2.5 rounded-xl bg-white/[0.06] hover:bg-white/[0.1] text-neutral-300 hover:text-white transition-all active:scale-95"
+          title="Refresh earnings"
         >
           <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
         </button>
       </div>
 
-      {/* Period Switcher Pills (Uber/Ola Driver style) */}
-      <div className="grid grid-cols-3 gap-2 bg-slate-900/80 p-1.5 rounded-2xl border border-slate-800">
+      {/* Period Switcher (Uber Driver Style) */}
+      <div className="grid grid-cols-3 p-1 bg-neutral-900 rounded-2xl border border-white/[0.08] gap-1">
         {(['today', 'week', 'month'] as Period[]).map(p => (
           <button
             key={p}
             onClick={() => setPeriod(p)}
             className={`py-2 rounded-xl text-xs font-bold transition-all ${
               period === p
-                ? 'bg-emerald-600 text-white shadow-md'
-                : 'text-slate-400 hover:text-slate-200'
+                ? 'bg-white text-black shadow-md font-extrabold'
+                : 'text-neutral-400 hover:text-white'
             }`}
           >
             {p === 'today' ? 'Today' : p === 'week' ? 'This Week' : 'This Month'}
@@ -102,49 +106,68 @@ export function EarningsPage({ auth }: EarningsPageProps) {
         ))}
       </div>
 
-      {/* Hero Earnings Card */}
-      <div className="p-6 rounded-3xl bg-gradient-to-br from-emerald-950/60 via-slate-900 to-slate-950 border border-emerald-500/30 shadow-2xl relative overflow-hidden space-y-3">
-        <div className="text-xs text-emerald-400 font-semibold uppercase tracking-wider flex items-center gap-1.5">
+      {/* Hero Earnings Card (Uber Driver Style) */}
+      <div className="p-6 rounded-3xl bg-neutral-900 border border-white/[0.08] shadow-2xl relative overflow-hidden space-y-3">
+        <div className="text-[11px] text-emerald-400 font-bold uppercase tracking-wider flex items-center gap-1.5">
           <TrendingUp className="w-4 h-4" />
           <span>Net Take-Home Earnings</span>
         </div>
 
         <div className="text-4xl font-black text-white font-mono flex items-center tracking-tight">
-          <IndianRupee className="w-8 h-8 text-emerald-400 mr-1" strokeWidth={2.5} />
+          <IndianRupee className="w-8 h-8 text-emerald-400 mr-1 stroke-[2.5]" />
           <span>{Math.round(currentAmount)}</span>
         </div>
 
-        <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-400">
-          <span>Auto-cleared to your registered UPI / Bank</span>
-          <span className="text-emerald-400 font-semibold flex items-center gap-0.5">
-            Settled <ArrowUpRight className="w-3.5 h-3.5" />
+        <div className="pt-2 border-t border-white/[0.06] flex items-center justify-between text-xs text-neutral-400">
+          <span>Settled to Bank UPI / Cash</span>
+          <span className="text-emerald-400 font-bold flex items-center gap-1">
+            <CheckCircle2 className="w-3.5 h-3.5" />
+            <span>Instant</span>
           </span>
         </div>
       </div>
 
-      {/* Key Stats 2x2 Grid */}
+      {/* Key Metrics Grid */}
       <div className="grid grid-cols-2 gap-3">
-        <div className="p-4 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-1">
-          <div className="flex items-center gap-1.5 text-xs text-slate-400">
+        <div className="p-4 rounded-2xl bg-neutral-900 border border-white/[0.08] space-y-1">
+          <div className="flex items-center gap-1.5 text-xs text-neutral-400">
             <Car className="w-4 h-4 text-emerald-400" />
-            <span>Completed Trips</span>
+            <span>Total Rides</span>
           </div>
-          <div className="text-2xl font-bold text-white font-mono">
+          <div className="text-2xl font-black text-white font-mono">
             {earnings?.totalTrips ?? 0}
           </div>
-          <div className="text-[11px] text-slate-500">All verified trips</div>
+          <div className="text-[11px] text-neutral-500">Completed rides</div>
         </div>
 
-        <div className="p-4 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-1">
-          <div className="flex items-center gap-1.5 text-xs text-slate-400">
+        <div className="p-4 rounded-2xl bg-neutral-900 border border-white/[0.08] space-y-1">
+          <div className="flex items-center gap-1.5 text-xs text-neutral-400">
             <Award className="w-4 h-4 text-amber-400" />
-            <span>Avg. Trip Fare</span>
+            <span>Avg. Per Ride</span>
           </div>
-          <div className="text-2xl font-bold text-white font-mono flex items-center">
-            <IndianRupee className="w-5 h-5 text-slate-400" />
+          <div className="text-2xl font-black text-white font-mono flex items-center">
+            <IndianRupee className="w-5 h-5 text-neutral-400 mr-0.5" />
             <span>{Math.round(earnings?.avgFare ?? 0)}</span>
           </div>
-          <div className="text-[11px] text-slate-500">Per passenger ride</div>
+          <div className="text-[11px] text-neutral-500">Average ticket size</div>
+        </div>
+      </div>
+
+      {/* Payout Details Card */}
+      <div className="p-4 rounded-2xl bg-neutral-900 border border-white/[0.08] flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-white/[0.06] flex items-center justify-center text-emerald-400">
+            <QrCode className="w-5 h-5" />
+          </div>
+          <div>
+            <div className="text-xs font-bold text-white">Registered UPI Settlement</div>
+            <div className="text-[11px] text-neutral-400 font-mono mt-0.5">
+              {auth.driver?.upiId || 'Direct Bank UPI'}
+            </div>
+          </div>
+        </div>
+        <div className="text-[11px] text-emerald-400 font-bold bg-emerald-500/10 px-2.5 py-1 rounded-full border border-emerald-500/20">
+          Active
         </div>
       </div>
     </div>

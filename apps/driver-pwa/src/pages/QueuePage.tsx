@@ -7,7 +7,6 @@ import {
   Car,
   MapPin,
   Navigation,
-  Radio,
   Power,
   QrCode,
   ShieldCheck,
@@ -21,14 +20,15 @@ import {
   ChevronRight,
   LogOut,
   RefreshCw,
-  Users,
   Compass,
   Banknote,
   Wallet,
-  Smartphone,
   Sparkles,
   Edit2,
   Calendar,
+  TrendingUp,
+  ExternalLink,
+  ShieldAlert,
 } from 'lucide-react';
 
 interface AuthState {
@@ -41,12 +41,18 @@ interface AuthState {
     phone?: string;
     upiId?: string;
     upiBeneficiaryName?: string;
+    vehicle?: {
+      registrationNumber?: string;
+      brand?: string;
+      vehicleModel?: string;
+    };
   } | null;
 }
 
 interface QueuePageProps {
   auth: AuthState;
   onUpdateDriver?: (updated: Partial<NonNullable<AuthState['driver']>>) => void;
+  onNavigateToEarnings?: () => void;
 }
 
 type DriverStatus = 'OFFLINE' | 'AVAILABLE' | 'ON_TRIP' | 'BREAK';
@@ -89,7 +95,7 @@ interface ActiveTrip {
   paymentMethod?: 'CASH' | 'UPI';
 }
 
-export function QueuePage({ auth, onUpdateDriver }: QueuePageProps) {
+export function QueuePage({ auth, onUpdateDriver, onNavigateToEarnings }: QueuePageProps) {
   const [status, setStatus] = useState<DriverStatus>('OFFLINE');
   const [queueEntry, setQueueEntry] = useState<QueueEntry | null>(null);
   const [tripOffer, setTripOffer] = useState<TripOffer | null>(null);
@@ -101,14 +107,33 @@ export function QueuePage({ auth, onUpdateDriver }: QueuePageProps) {
   const [error, setError] = useState('');
   const [offerCountdown, setOfferCountdown] = useState(30);
   const [actionLoading, setActionLoading] = useState(false);
+  const [todayEarnings, setTodayEarnings] = useState<number>(0);
+  const [isSocketConnected, setIsSocketConnected] = useState(false);
 
-  // ─── ONLY CASH / UPI PAYMENT COLLECTION STATES ───────────
+  // ─── PAYMENT STATES ───────────────────────────────────────
   const [paymentMode, setPaymentMode] = useState<'UPI' | 'CASH'>('UPI');
   const [paymentStep, setPaymentStep] = useState<'RUNNING' | 'COLLECTING_PAYMENT' | 'COMPLETED'>('RUNNING');
   const [dynamicUpiQr, setDynamicUpiQr] = useState<string>('');
   const [quickUpiInput, setQuickUpiInput] = useState<string>(auth.driver?.upiId || '');
   const [isEditingUpi, setIsEditingUpi] = useState(false);
   const [savingQuickUpi, setSavingQuickUpi] = useState(false);
+
+  // Fetch today's earnings for the top Uber-style earnings pill
+  const fetchTodayEarnings = useCallback(async () => {
+    if (!auth.token) return;
+    try {
+      const res = await api.get<{ data: { today: number } }>('/driver/earnings', auth.token);
+      if (res?.data?.today !== undefined) {
+        setTodayEarnings(res.data.today);
+      }
+    } catch {
+      // Graceful fallback
+    }
+  }, [auth.token]);
+
+  useEffect(() => {
+    fetchTodayEarnings();
+  }, [fetchTodayEarnings]);
 
   // Sync quickUpiInput with auth.driver?.upiId
   useEffect(() => {
@@ -140,9 +165,9 @@ export function QueuePage({ auth, onUpdateDriver }: QueuePageProps) {
     const upiUri = `upi://pay?pa=${effectiveUpi}&pn=${encodeURIComponent(payeeName)}&am=${fareAmt.toFixed(2)}&cu=INR&tn=${encodeURIComponent('Trip ' + bookingNum)}`;
 
     QRCode.toDataURL(upiUri, {
-      width: 280,
+      width: 260,
       margin: 1,
-      color: { dark: '#022c22', light: '#ffffff' },
+      color: { dark: '#000000', light: '#ffffff' },
     })
       .then(url => setDynamicUpiQr(url))
       .catch(() => setDynamicUpiQr(''));
@@ -179,10 +204,12 @@ export function QueuePage({ auth, onUpdateDriver }: QueuePageProps) {
       setPaymentMode(mode);
       setPaymentStep('COMPLETED');
       setActiveTrip(prev => (prev ? { ...prev, status: 'TRIP_COMPLETED', paymentMethod: mode } : null));
+      fetchTodayEarnings();
     } catch {
       setPaymentMode(mode);
       setPaymentStep('COMPLETED');
       setActiveTrip(prev => (prev ? { ...prev, status: 'TRIP_COMPLETED', paymentMethod: mode } : null));
+      fetchTodayEarnings();
     } finally {
       setActionLoading(false);
     }
@@ -209,7 +236,7 @@ export function QueuePage({ auth, onUpdateDriver }: QueuePageProps) {
         });
       },
       () => {
-        // Fallback simulated GPS coordinates for Kollur Temple area in development
+        // Fallback simulated GPS coordinates for Kollur Temple area
         setLocation({ lat: 13.8647, lng: 74.8135, accuracy: 12 });
       },
       { enableHighAccuracy: true, timeout: 10000, maximumAge: 5000 }
@@ -226,7 +253,9 @@ export function QueuePage({ auth, onUpdateDriver }: QueuePageProps) {
   useEffect(() => {
     if (!auth.token) return;
 
-    const socketUrl = import.meta.env.VITE_SOCKET_URL || (import.meta.env.VITE_API_BASE_URL ? import.meta.env.VITE_API_BASE_URL.replace(/\/api.*$/, '') : undefined);
+    const socketUrl =
+      import.meta.env.VITE_SOCKET_URL ||
+      (import.meta.env.VITE_API_BASE_URL ? import.meta.env.VITE_API_BASE_URL.replace(/\/api.*$/, '') : undefined);
     const socket = io(socketUrl, {
       auth: { token: auth.token },
       transports: ['polling', 'websocket'],
@@ -239,11 +268,15 @@ export function QueuePage({ auth, onUpdateDriver }: QueuePageProps) {
     socketRef.current = socket;
 
     socket.on('connect', () => {
-      console.log('Driver socket connected:', socket.id);
+      setIsSocketConnected(true);
+    });
+
+    socket.on('disconnect', () => {
+      setIsSocketConnected(false);
     });
 
     socket.on('connect_error', (err: any) => {
-      console.warn('Driver socket connection error:', err?.message);
+      setIsSocketConnected(false);
       if (err?.message?.includes('token') || err?.message?.includes('Authentication') || err?.message?.includes('unauthorized')) {
         window.dispatchEvent(new CustomEvent('auth:unauthorized'));
       }
@@ -251,13 +284,12 @@ export function QueuePage({ auth, onUpdateDriver }: QueuePageProps) {
 
     // Listen for trip offer from server
     const handleTripOffer = (payload: any) => {
-      console.log('Incoming trip offer received:', payload);
       setTripOffer({
         tripId: payload.tripId || payload.bookingId,
         bookingId: payload.bookingId,
         bookingNumber: payload.bookingNumber,
-        pickupAddress: payload.pickupLocation?.address || payload.pickupAddress || 'Pickup Location',
-        dropAddress: payload.dropLocation?.address || payload.dropAddress || 'Destination',
+        pickupAddress: payload.pickupLocation?.address || payload.pickupAddress || 'Pickup Point',
+        dropAddress: payload.dropLocation?.address || payload.dropAddress || 'Destination Point',
         estimatedFare: payload.estimatedFare || 0,
         distanceKm: payload.distanceKm || 0,
         passengers: payload.passengers || 1,
@@ -266,7 +298,10 @@ export function QueuePage({ auth, onUpdateDriver }: QueuePageProps) {
         scheduledAt: payload.scheduledAt,
       });
 
-      // Play subtle browser audio ping if available
+      // Haptic feedback & audio chime
+      if (navigator.vibrate) {
+        navigator.vibrate([200, 100, 200, 100, 400]);
+      }
       try {
         const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
         const osc = audioCtx.createOscillator();
@@ -274,7 +309,7 @@ export function QueuePage({ auth, onUpdateDriver }: QueuePageProps) {
         osc.frequency.setValueAtTime(880, audioCtx.currentTime);
         osc.connect(audioCtx.destination);
         osc.start();
-        osc.stop(audioCtx.currentTime + 0.3);
+        osc.stop(audioCtx.currentTime + 0.35);
       } catch {}
     };
 
@@ -285,24 +320,22 @@ export function QueuePage({ auth, onUpdateDriver }: QueuePageProps) {
       if (data.status === 'COMPLETED') {
         setActiveTrip(null);
         setStatus('AVAILABLE');
+        fetchTodayEarnings();
       }
     });
 
     return () => {
       socket.off('connect');
+      socket.off('disconnect');
       socket.off('connect_error');
       socket.off('trip:offer:sent', handleTripOffer);
       socket.off('TRIP_OFFER_SENT', handleTripOffer);
       socket.off('trip:status:changed');
       if (socket.connected) {
         socket.disconnect();
-      } else {
-        socket.once('connect', () => {
-          socket.disconnect();
-        });
       }
     };
-  }, [auth.token]);
+  }, [auth.token, fetchTodayEarnings]);
 
   // 3. Check current queue status on mount
   const checkMyStatus = useCallback(async () => {
@@ -337,7 +370,7 @@ export function QueuePage({ auth, onUpdateDriver }: QueuePageProps) {
           status: at.status,
           pickupAddress: at.pickupLocation?.address || at.pickupAddress || 'Pickup Point',
           dropAddress: at.dropLocation?.address || at.dropAddress,
-          fare: at.finalFare?.total || at.estimatedFare || at.fare || 500,
+          fare: at.finalFare?.total || at.estimatedFare || at.fare || 0,
           customerName: at.customerId?.name || at.customerName || 'Passenger',
           customerPhone: at.customerId?.phone || at.customerPhone,
         });
@@ -516,7 +549,7 @@ export function QueuePage({ auth, onUpdateDriver }: QueuePageProps) {
     if (!activeTrip || !auth.token) return;
     const effectiveOtp = (customOtp || otpInput).trim();
     if (effectiveOtp.length < 4) {
-      setError('Please enter the 6-digit Ride OTP or scan passenger QR code');
+      setError('Please enter the 6-digit Ride PIN or scan passenger QR code');
       return;
     }
     setActionLoading(true);
@@ -531,7 +564,7 @@ export function QueuePage({ auth, onUpdateDriver }: QueuePageProps) {
       setOtpInput('');
       setCustomerQrModalOpen(false);
     } catch (e: any) {
-      setError(e?.message || 'Invalid trip OTP. Please check passenger phone or scan QR code.');
+      setError(e?.message || 'Invalid trip PIN. Please check passenger phone or scan QR code.');
     } finally {
       setActionLoading(false);
     }
@@ -555,18 +588,11 @@ export function QueuePage({ auth, onUpdateDriver }: QueuePageProps) {
     handleStartTrip(extractedOtp);
   };
 
-  // Handler: Complete Trip
-  const handleCompleteTrip = async () => {
-    if (!activeTrip || !auth.token) return;
-    setActionLoading(true);
-    try {
-      await api.post(`/trips/${activeTrip._id}/complete`, {}, auth.token);
-      setActiveTrip(prev => (prev ? { ...prev, status: 'TRIP_COMPLETED' } : null));
-    } catch {
-      setActiveTrip(prev => (prev ? { ...prev, status: 'TRIP_COMPLETED' } : null));
-    } finally {
-      setActionLoading(false);
-    }
+  // Navigation intent link
+  const openExternalNavigation = (address: string) => {
+    if (!address) return;
+    const url = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(address)}`;
+    window.open(url, '_blank');
   };
 
   const standName =
@@ -575,71 +601,87 @@ export function QueuePage({ auth, onUpdateDriver }: QueuePageProps) {
       : 'Kollur Mookambika Stand';
 
   return (
-    <div className="px-4 py-5 space-y-5">
-      {/* ─── NATIVE APP TOP STATUS BAR ─────────────────────────── */}
-      <div className="flex items-center justify-between bg-slate-900/90 backdrop-blur-md p-3.5 rounded-2xl border border-slate-800 shadow-lg">
-        <div className="flex items-center gap-3">
-          <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-700 flex items-center justify-center text-white font-bold text-lg shadow-md border border-emerald-400/30">
-            {auth.driver?.name?.charAt(0)?.toUpperCase() || 'C'}
+    <div className="px-3.5 py-3 space-y-4 safe-area-top">
+      {/* ─── UBER DRIVER TOP FLOATING STATUS BAR ───────────────── */}
+      <div className="flex items-center justify-between bg-neutral-900/90 backdrop-blur-xl px-3.5 py-2.5 rounded-2xl border border-white/[0.08] shadow-lg">
+        {/* Left: Driver Profile Avatar & Name */}
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className="relative shrink-0">
+            <div className="w-10 h-10 rounded-full bg-white text-black font-black text-sm flex items-center justify-center shadow-md">
+              {auth.driver?.name?.charAt(0)?.toUpperCase() || 'C'}
+            </div>
+            <span
+              className={`absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-black ${
+                status === 'AVAILABLE'
+                  ? 'bg-emerald-500'
+                  : status === 'ON_TRIP'
+                  ? 'bg-blue-500 animate-pulse'
+                  : 'bg-neutral-500'
+              }`}
+            />
           </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="font-bold text-white text-base leading-tight">
+          <div className="min-w-0">
+            <div className="flex items-center gap-1.5">
+              <span className="font-bold text-white text-sm truncate">
                 {auth.driver?.name || 'Captain'}
               </span>
-              <ShieldCheck className="w-4 h-4 text-emerald-400" />
+              <ShieldCheck className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
             </div>
-            <div className="flex items-center gap-2 text-xs text-slate-400 font-mono mt-0.5">
-              <span className="bg-slate-800 px-1.5 py-0.5 rounded text-emerald-400 font-semibold border border-slate-700">
-                {auth.driver?.driverCode || 'DRV-001'}
-              </span>
+            <div className="text-[11px] text-neutral-400 truncate font-mono">
+              {auth.driver?.vehicle?.registrationNumber || auth.driver?.driverCode || 'Tourist Taxi'}
             </div>
           </div>
         </div>
 
-        {/* Online / Offline status badge */}
-        <div className="text-right">
+        {/* Center: Live Today Earnings Pill (Uber Driver signature) */}
+        <button
+          onClick={onNavigateToEarnings}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/[0.06] hover:bg-white/[0.1] border border-white/[0.08] transition-all active:scale-95 text-white"
+        >
+          <TrendingUp className="w-3.5 h-3.5 text-emerald-400" />
+          <span className="text-xs font-black font-mono">₹{Math.round(todayEarnings)}</span>
+          <ChevronRight className="w-3 h-3 text-neutral-400" />
+        </button>
+
+        {/* Right: Online / Offline status badge */}
+        <div className="shrink-0">
           <div
-            className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold tracking-wide uppercase border ${
+            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold tracking-tight border ${
               status === 'AVAILABLE'
                 ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
                 : status === 'ON_TRIP'
                 ? 'bg-blue-500/15 text-blue-400 border-blue-500/30'
-                : 'bg-slate-800 text-slate-400 border-slate-700'
+                : 'bg-neutral-800 text-neutral-400 border-neutral-700'
             }`}
           >
             <span
-              className={`w-2 h-2 rounded-full ${
+              className={`w-1.5 h-1.5 rounded-full ${
                 status === 'AVAILABLE'
                   ? 'bg-emerald-400 animate-pulse'
                   : status === 'ON_TRIP'
                   ? 'bg-blue-400 animate-pulse'
-                  : 'bg-slate-500'
+                  : 'bg-neutral-500'
               }`}
             />
-            {status === 'AVAILABLE' ? 'Online' : status === 'ON_TRIP' ? 'On Trip' : 'Offline'}
+            <span>{status === 'AVAILABLE' ? 'Online' : status === 'ON_TRIP' ? 'Trip' : 'Offline'}</span>
           </div>
         </div>
       </div>
 
-      {/* GPS Satellite Lock Status */}
-      <div className="flex items-center justify-between px-3 py-2 bg-slate-900/60 rounded-xl border border-slate-800/80 text-xs">
-        <div className="flex items-center gap-2 text-slate-300">
-          <Navigation className="w-3.5 h-3.5 text-emerald-400" />
-          <span>
-            {location
-              ? `GPS Lock Active (±${Math.round(location.accuracy)}m)`
-              : 'Acquiring GPS location...'}
-          </span>
+      {/* GPS & Network Status Minimal Bar */}
+      <div className="flex items-center justify-between px-3 py-1.5 bg-neutral-900/40 rounded-xl border border-white/[0.04] text-[11px] text-neutral-400">
+        <div className="flex items-center gap-1.5">
+          <Navigation className="w-3 h-3 text-emerald-400" />
+          <span>{location ? `GPS Locked (±${Math.round(location.accuracy)}m)` : 'Locating GPS...'}</span>
         </div>
-        <div className="flex items-center gap-1.5 text-emerald-400 font-medium">
-          <Radio className="w-3 h-3 animate-pulse" />
-          <span>Live 4G</span>
+        <div className="flex items-center gap-1 text-emerald-400 font-medium">
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+          <span>{isSocketConnected ? 'Connected' : 'Connecting...'}</span>
         </div>
       </div>
 
       {error && (
-        <div className="flex items-center gap-2.5 p-3.5 rounded-xl bg-red-950/60 border border-red-800/80 text-red-300 text-xs">
+        <div className="flex items-center gap-2 p-3 rounded-xl bg-rose-950/70 border border-rose-800/80 text-rose-300 text-xs animate-shake">
           <AlertCircle className="w-4 h-4 shrink-0" />
           <span className="flex-1">{error}</span>
           <button onClick={() => setError('')} className="p-1 hover:text-white">
@@ -648,145 +690,143 @@ export function QueuePage({ auth, onUpdateDriver }: QueuePageProps) {
         </div>
       )}
 
-      {/* ─── MODE 1: OFFLINE HERO VIEW (Uber Driver "GO" Button) ─── */}
+      {/* ─── MODE 1: OFFLINE HERO VIEW (Uber Driver "GO" Screen) ─── */}
       {status === 'OFFLINE' && !queueEntry && !activeTrip && (
-        <div className="py-6 flex flex-col items-center justify-center text-center space-y-6">
-          {/* Uber-style circular "GO" button */}
-          <div className="relative group">
-            {/* Animated pulsating outer rings */}
-            <div className="absolute inset-0 rounded-full bg-emerald-500/20 animate-ping opacity-30" />
-            <div className="absolute -inset-4 rounded-full bg-gradient-to-r from-emerald-500/20 to-teal-500/20 blur-xl" />
+        <div className="py-8 flex flex-col items-center justify-center text-center space-y-7 relative">
+          {/* Subtle radar pulse rings behind the GO button */}
+          <div className="relative flex items-center justify-center">
+            <div className="absolute w-48 h-48 rounded-full border border-emerald-500/20 radar-ring-1 pointer-events-none" />
+            <div className="absolute w-48 h-48 rounded-full border border-emerald-500/20 radar-ring-2 pointer-events-none" />
+            <div className="absolute w-48 h-48 rounded-full border border-emerald-500/20 radar-ring-3 pointer-events-none" />
 
+            {/* Uber-style circular "GO" button */}
             <button
               onClick={() => setQrModalOpen(true)}
-              className="relative w-44 h-44 rounded-full bg-gradient-to-b from-emerald-500 to-emerald-700 text-white flex flex-col items-center justify-center shadow-[0_12px_36px_rgba(16,185,129,0.4)] border-4 border-emerald-400/40 hover:scale-105 active:scale-95 transition-all duration-300 group-hover:from-emerald-400 group-hover:to-emerald-600"
+              className="relative w-40 h-40 rounded-full bg-gradient-to-b from-emerald-500 to-emerald-600 text-black flex flex-col items-center justify-center shadow-[0_12px_40px_rgba(0,200,83,0.35)] border-4 border-emerald-300/40 hover:scale-105 active:scale-95 transition-all duration-200 z-10 group"
             >
-              <Power className="w-10 h-10 mb-1" strokeWidth={2.5} />
-              <span className="text-3xl font-black tracking-wider uppercase">GO</span>
-              <span className="text-[11px] font-semibold text-emerald-100 uppercase tracking-widest mt-0.5">
+              <Power className="w-9 h-9 mb-0.5 text-black stroke-[2.5]" />
+              <span className="text-4xl font-black tracking-tight uppercase leading-none">GO</span>
+              <span className="text-[10px] font-black uppercase tracking-widest text-emerald-950 mt-1">
                 Go Online
               </span>
             </button>
           </div>
 
-          <div className="space-y-1">
-            <h2 className="text-lg font-bold text-white">You're Offline</h2>
-            <p className="text-xs text-slate-400 max-w-xs">
-              Check in at your taxi stand via QR scanner to join the captain queue and receive trip dispatches.
+          <div className="space-y-1.5 max-w-xs mx-auto">
+            <h2 className="text-xl font-extrabold text-white">You're Offline</h2>
+            <p className="text-xs text-neutral-400 leading-relaxed">
+              Scan your taxi stand QR code to check into the captain queue and receive automated ride requests.
             </p>
           </div>
 
           {/* Quick Action: Scan Taxi Stand QR */}
-          <div className="w-full pt-2">
+          <div className="w-full pt-1 space-y-2">
             <button
               onClick={() => setQrModalOpen(true)}
-              className="w-full flex items-center justify-center gap-2.5 py-4 px-5 rounded-2xl bg-slate-900 border border-emerald-500/30 text-emerald-400 font-bold text-sm shadow-md hover:bg-slate-800 transition-all active:scale-[0.98]"
+              className="btn-uber-primary"
             >
-              <QrCode className="w-5 h-5 text-emerald-400" />
-              <span>Scan Stand QR Code to Join Queue</span>
+              <QrCode className="w-5 h-5 text-black" />
+              <span>SCAN STAND QR TO CHECK IN</span>
             </button>
           </div>
         </div>
       )}
 
-      {/* ─── MODE 2: IN QUEUE HUD (Namma Yatri / Ola Driver Radar) ── */}
+      {/* ─── MODE 2: IN QUEUE HUD (Uber Radar & Finding Trips) ──── */}
       {status === 'AVAILABLE' && queueEntry && !activeTrip && (
         <div className="space-y-4">
-          <div className="p-6 rounded-3xl bg-gradient-to-b from-slate-900 via-slate-900/95 to-slate-950 border border-emerald-500/30 shadow-2xl relative overflow-hidden">
-            {/* Background radar waves */}
-            <div className="absolute top-0 right-0 -mr-16 -mt-16 w-48 h-48 rounded-full bg-emerald-500/5 blur-2xl" />
-
-            {/* Radar Header */}
-            <div className="flex items-center justify-between mb-4">
+          <div className="p-6 rounded-3xl bg-neutral-900 border border-white/[0.08] shadow-2xl relative overflow-hidden space-y-4">
+            {/* Top Radar Pulse Indicator */}
+            <div className="flex items-center justify-between pb-3 border-b border-white/[0.06]">
               <div className="flex items-center gap-2">
                 <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping" />
-                <span className="text-xs font-bold uppercase tracking-wider text-emerald-400">
-                  Active Queue Radar
+                <span className="text-xs font-extrabold tracking-wider text-emerald-400 uppercase">
+                  Finding Trips...
                 </span>
               </div>
               <button
                 onClick={checkMyStatus}
-                className="text-slate-400 hover:text-white text-xs flex items-center gap-1 transition-colors"
+                className="text-neutral-400 hover:text-white text-xs flex items-center gap-1.5 transition-colors"
               >
                 <RefreshCw className="w-3.5 h-3.5" />
                 <span>Refresh</span>
               </button>
             </div>
 
-            {/* Huge Position Badge */}
-            <div className="py-4 text-center">
-              <div className="relative inline-flex items-center justify-center w-28 h-28 rounded-full bg-slate-950/80 border-4 border-emerald-500 shadow-[0_0_30px_rgba(16,185,129,0.3)]">
+            {/* Huge Position Display (Uber Style) */}
+            <div className="py-2 text-center space-y-1">
+              <div className="inline-flex items-center justify-center w-28 h-28 rounded-full bg-black border-4 border-emerald-500 shadow-[0_0_36px_rgba(0,200,83,0.3)]">
                 <span className="text-5xl font-black text-emerald-400 font-mono tracking-tighter">
                   #{queueEntry.position}
                 </span>
               </div>
-              <div className="text-xs font-bold text-slate-300 mt-2 uppercase tracking-widest">
-                Queue Position
+              <div className="text-xs font-bold text-neutral-300 uppercase tracking-widest pt-2">
+                Your Queue Position
               </div>
             </div>
 
-            {/* Taxi Stand Info */}
-            <div className="mt-2 p-3.5 rounded-2xl bg-slate-950/60 border border-slate-800 text-center space-y-1">
+            {/* Stand Info Pill */}
+            <div className="p-3 rounded-2xl bg-black/60 border border-white/[0.06] text-center space-y-0.5">
               <div className="flex items-center justify-center gap-1.5 text-white font-bold text-sm">
                 <MapPin className="w-4 h-4 text-emerald-400 shrink-0" />
                 <span>{standName}</span>
               </div>
-              <div className="text-[11px] text-slate-400">
-                Next passenger booking will be offered to you automatically
+              <div className="text-[11px] text-neutral-400">
+                Next passenger ride will be dispatched directly to your app
               </div>
             </div>
 
-            {/* Metrics Grid */}
-            <div className="grid grid-cols-2 gap-2.5 mt-4">
-              <div className="p-3 rounded-xl bg-slate-950/40 border border-slate-800/80 text-center">
-                <div className="text-[11px] text-slate-400">Vehicles Ahead</div>
-                <div className="text-lg font-bold text-white font-mono mt-0.5">
+            {/* Key Stats Grid */}
+            <div className="grid grid-cols-2 gap-2.5 pt-1">
+              <div className="p-3 rounded-2xl bg-black/40 border border-white/[0.06] text-center">
+                <div className="text-[11px] text-neutral-400 font-medium">Vehicles Ahead</div>
+                <div className="text-xl font-black text-white font-mono mt-0.5">
                   {Math.max(0, queueEntry.position - 1)}
                 </div>
               </div>
-              <div className="p-3 rounded-xl bg-slate-950/40 border border-slate-800/80 text-center">
-                <div className="text-[11px] text-slate-400">Est. Wait Time</div>
-                <div className="text-lg font-bold text-emerald-400 font-mono mt-0.5">
+              <div className="p-3 rounded-2xl bg-black/40 border border-white/[0.06] text-center">
+                <div className="text-[11px] text-neutral-400 font-medium">Est. Wait</div>
+                <div className="text-xl font-black text-emerald-400 font-mono mt-0.5">
                   {queueEntry.position === 1 ? 'Next Up!' : `~${queueEntry.position * 5}m`}
                 </div>
               </div>
             </div>
 
             {/* Leave Queue Button */}
-            <div className="mt-5 pt-3 border-t border-slate-800/80">
+            <div className="pt-3 border-t border-white/[0.06]">
               <button
                 onClick={handleLeaveQueue}
                 disabled={actionLoading}
-                className="w-full py-3 rounded-xl border border-rose-500/30 text-rose-400 hover:bg-rose-500/10 font-semibold text-xs transition-colors flex items-center justify-center gap-2"
+                className="w-full py-3 rounded-xl border border-rose-500/30 text-rose-400 hover:bg-rose-500/10 font-bold text-xs transition-colors flex items-center justify-center gap-1.5"
               >
-                <LogOut className="w-4 h-4" />
-                <span>Leave Taxi Stand Queue</span>
+                <LogOut className="w-3.5 h-3.5" />
+                <span>Leave Queue</span>
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* ─── MODE 3: REAL-TIME TRIP OFFER MODAL (Uber/Ola Driver style) ── */}
+      {/* ─── MODE 3: REAL-TIME TRIP OFFER MODAL (Uber Driver Style) ── */}
       {tripOffer && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-end justify-center p-0 sm:p-4">
-          <div className="w-full max-w-md bg-slate-900 border-t sm:border border-emerald-500/40 rounded-t-3xl sm:rounded-3xl p-5 shadow-2xl space-y-4 animate-slide-up">
+        <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-end justify-center p-0 sm:p-4">
+          <div className="w-full max-w-md bg-neutral-900 border-t sm:border border-emerald-500/40 rounded-t-3xl sm:rounded-3xl p-5 shadow-2xl space-y-4 slide-up-smooth max-h-[95vh] overflow-y-auto">
             {/* Header with countdown */}
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-bold">
-                  <Car className="w-4 h-4" />
+            <div className="flex items-center justify-between border-b border-white/[0.08] pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-bold">
+                  <Car className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="font-bold text-white text-base">New Trip Request!</h3>
-                  <div className="text-[11px] text-slate-400 font-mono">
-                    {tripOffer.bookingNumber || 'Instant Dispatch'}
+                  <h3 className="font-extrabold text-white text-base">Incoming Trip Request</h3>
+                  <div className="text-[11px] text-neutral-400 font-mono">
+                    {tripOffer.bookingNumber || 'Ride Request'}
                   </div>
                 </div>
               </div>
 
               {/* Countdown circle */}
-              <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-rose-500/15 border border-rose-500/30 text-rose-400 font-bold text-sm">
+              <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-rose-500/15 border border-rose-500/30 text-rose-400 font-black text-sm font-mono">
                 <Clock className="w-3.5 h-3.5" />
                 <span>{offerCountdown}s</span>
               </div>
@@ -797,7 +837,7 @@ export function QueuePage({ auth, onUpdateDriver }: QueuePageProps) {
               <div className="flex items-center gap-2 p-2.5 rounded-xl bg-indigo-500/20 border border-indigo-500/40 text-indigo-300 text-xs font-semibold">
                 <Calendar className="w-4 h-4 text-indigo-400 shrink-0" />
                 <span>
-                  Scheduled Trip •{' '}
+                  Advance Reservation •{' '}
                   {new Date(tripOffer.scheduledAt).toLocaleString('en-IN', {
                     dateStyle: 'medium',
                     timeStyle: 'short',
@@ -806,35 +846,35 @@ export function QueuePage({ auth, onUpdateDriver }: QueuePageProps) {
               </div>
             )}
 
-            {/* Fare Hero */}
-            <div className="p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-between">
+            {/* Fare Hero (Uber Style) */}
+            <div className="p-4 rounded-2xl bg-black border border-emerald-500/30 flex items-center justify-between">
               <div>
-                <div className="text-xs text-emerald-300 font-semibold uppercase tracking-wider">
+                <div className="text-[11px] text-emerald-400 font-bold uppercase tracking-wider">
                   Guaranteed Fare
                 </div>
-                <div className="text-3xl font-black text-emerald-400 font-mono mt-0.5 flex items-center">
-                  <IndianRupee className="w-6 h-6 mr-0.5" />
+                <div className="text-3xl font-black text-white font-mono mt-0.5 flex items-center tracking-tight">
+                  <IndianRupee className="w-6 h-6 mr-0.5 text-emerald-400" />
                   {Math.round(tripOffer.estimatedFare)}
                 </div>
               </div>
-              <div className="text-right text-xs text-slate-300 space-y-1">
-                <div className="font-semibold">{tripOffer.distanceKm.toFixed(1)} km ride</div>
-                <div className="text-[11px] text-slate-400">Cash / UPI on Completion</div>
+              <div className="text-right text-xs text-neutral-300 space-y-0.5">
+                <div className="font-bold">{tripOffer.distanceKm.toFixed(1)} km ride</div>
+                <div className="text-[11px] text-neutral-400">Cash / UPI on Completion</div>
               </div>
             </div>
 
             {/* Route Timeline */}
-            <div className="space-y-3 px-1 py-2 text-sm">
+            <div className="space-y-3 px-1 py-1 text-sm">
               <div className="flex gap-3">
                 <div className="flex flex-col items-center">
                   <span className="w-3.5 h-3.5 rounded-full bg-emerald-500 ring-4 ring-emerald-500/20" />
-                  <span className="w-0.5 flex-1 bg-slate-700 my-1" />
+                  <span className="w-0.5 flex-1 bg-neutral-700 my-1" />
                 </div>
-                <div>
-                  <div className="text-[11px] font-bold text-emerald-400 uppercase tracking-wider">
+                <div className="min-w-0">
+                  <div className="text-[10px] font-bold text-emerald-400 uppercase tracking-wider">
                     Pickup Location
                   </div>
-                  <div className="text-white font-medium text-xs mt-0.5">
+                  <div className="text-white font-medium text-xs mt-0.5 truncate">
                     {tripOffer.pickupAddress}
                   </div>
                 </div>
@@ -845,11 +885,11 @@ export function QueuePage({ auth, onUpdateDriver }: QueuePageProps) {
                   <div className="flex flex-col items-center">
                     <span className="w-3.5 h-3.5 rounded-full bg-rose-500 ring-4 ring-rose-500/20" />
                   </div>
-                  <div>
-                    <div className="text-[11px] font-bold text-rose-400 uppercase tracking-wider">
+                  <div className="min-w-0">
+                    <div className="text-[10px] font-bold text-rose-400 uppercase tracking-wider">
                       Drop Destination
                     </div>
-                    <div className="text-white font-medium text-xs mt-0.5">
+                    <div className="text-white font-medium text-xs mt-0.5 truncate">
                       {tripOffer.dropAddress}
                     </div>
                   </div>
@@ -862,16 +902,16 @@ export function QueuePage({ auth, onUpdateDriver }: QueuePageProps) {
               <button
                 onClick={handleDeclineTrip}
                 disabled={actionLoading}
-                className="py-3.5 rounded-xl border border-slate-700 bg-slate-800/80 hover:bg-slate-800 text-slate-300 font-bold text-sm transition-all active:scale-95"
+                className="py-3.5 rounded-2xl border border-white/[0.1] bg-neutral-800 hover:bg-neutral-700 text-neutral-300 font-bold text-sm transition-all active:scale-95"
               >
-                Pass / Decline
+                Decline
               </button>
               <button
                 onClick={handleAcceptTrip}
                 disabled={actionLoading}
-                className="py-3.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white font-bold text-sm shadow-lg shadow-emerald-500/30 transition-all active:scale-95 flex items-center justify-center gap-1.5"
+                className="btn-uber-primary !py-3.5 !rounded-2xl"
               >
-                <Check className="w-4 h-4" />
+                <Check className="w-5 h-5 stroke-[3]" />
                 <span>ACCEPT RIDE</span>
               </button>
             </div>
@@ -879,86 +919,124 @@ export function QueuePage({ auth, onUpdateDriver }: QueuePageProps) {
         </div>
       )}
 
-      {/* ─── MODE 4: ACTIVE TRIP HUD (Arrived -> OTP -> Started -> Complete) ── */}
+      {/* ─── MODE 4: ACTIVE TRIP HUD ───────────────────────────── */}
       {status === 'ON_TRIP' && activeTrip && (
-        <div className="space-y-4 p-5 rounded-3xl bg-slate-900 border border-blue-500/30 shadow-2xl">
-          <div className="flex items-center justify-between pb-3 border-b border-slate-800">
-            <div className="flex items-center gap-2 text-blue-400 font-bold text-sm">
+        <div className="space-y-4 p-5 rounded-3xl bg-neutral-900 border border-blue-500/40 shadow-2xl">
+          <div className="flex items-center justify-between pb-3 border-b border-white/[0.08]">
+            <div className="flex items-center gap-2 text-blue-400 font-extrabold text-sm">
               <Compass className="w-4 h-4 animate-spin" />
-              <span>ACTIVE TRIP IN PROGRESS</span>
+              <span>RIDE IN PROGRESS</span>
             </div>
-            <div className="text-xs text-slate-400 font-mono">
+            <div className="text-xs text-neutral-400 font-mono font-semibold">
               {activeTrip.bookingNumber}
             </div>
           </div>
 
-          {/* Route Info */}
+          {/* Passenger & Contact Bar */}
+          <div className="flex items-center justify-between p-3 rounded-2xl bg-black/60 border border-white/[0.06]">
+            <div>
+              <div className="text-[10px] text-neutral-400 uppercase font-bold tracking-wider">Passenger</div>
+              <div className="text-sm font-bold text-white mt-0.5">{activeTrip.customerName || 'Passenger'}</div>
+            </div>
+            {activeTrip.customerPhone && (
+              <a
+                href={`tel:${activeTrip.customerPhone}`}
+                className="p-2.5 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-400 flex items-center gap-1.5 text-xs font-bold transition-all active:scale-95"
+              >
+                <Phone className="w-3.5 h-3.5" />
+                <span>Call</span>
+              </a>
+            )}
+          </div>
+
+          {/* Route Info with 1-Tap Navigation */}
           <div className="space-y-3 py-1">
-            <div className="flex items-start gap-2.5">
-              <MapPin className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-              <div>
-                <div className="text-[11px] text-slate-400 uppercase font-semibold">Pickup</div>
-                <div className="text-white text-xs font-medium">{activeTrip.pickupAddress}</div>
+            <div className="flex items-start justify-between gap-2">
+              <div className="flex items-start gap-2.5 min-w-0">
+                <MapPin className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                <div className="min-w-0">
+                  <div className="text-[10px] text-neutral-400 uppercase font-bold">Pickup</div>
+                  <div className="text-white text-xs font-medium truncate">{activeTrip.pickupAddress}</div>
+                </div>
               </div>
+              <button
+                type="button"
+                onClick={() => openExternalNavigation(activeTrip.pickupAddress)}
+                className="px-2.5 py-1.5 rounded-xl bg-white/[0.06] hover:bg-white/[0.1] border border-white/[0.1] text-neutral-300 text-[11px] font-bold flex items-center gap-1 shrink-0"
+              >
+                <ExternalLink className="w-3 h-3 text-emerald-400" />
+                <span>Maps</span>
+              </button>
             </div>
 
             {activeTrip.dropAddress && (
-              <div className="flex items-start gap-2.5">
-                <MapPin className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
-                <div>
-                  <div className="text-[11px] text-slate-400 uppercase font-semibold">Drop</div>
-                  <div className="text-white text-xs font-medium">{activeTrip.dropAddress}</div>
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex items-start gap-2.5 min-w-0">
+                  <MapPin className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+                  <div className="min-w-0">
+                    <div className="text-[10px] text-neutral-400 uppercase font-bold">Drop Destination</div>
+                    <div className="text-white text-xs font-medium truncate">{activeTrip.dropAddress}</div>
+                  </div>
                 </div>
+                <button
+                  type="button"
+                  onClick={() => openExternalNavigation(activeTrip.dropAddress!)}
+                  className="px-2.5 py-1.5 rounded-xl bg-white/[0.06] hover:bg-white/[0.1] border border-white/[0.1] text-neutral-300 text-[11px] font-bold flex items-center gap-1 shrink-0"
+                >
+                  <ExternalLink className="w-3 h-3 text-rose-400" />
+                  <span>Maps</span>
+                </button>
               </div>
             )}
           </div>
 
-          {/* Stepper Actions based on Trip Stage */}
+          {/* STAGE 1: DRIVER_ACCEPTED -> I've Arrived */}
           {activeTrip.status === 'DRIVER_ACCEPTED' && (
             <div className="pt-2">
               <button
                 onClick={handleDriverArrived}
                 disabled={actionLoading}
-                className="w-full py-4 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-sm shadow-lg transition-all active:scale-98"
+                className="btn-uber-blue"
               >
-                ARRIVED AT PICKUP POINT
+                <span>I'VE ARRIVED AT PICKUP POINT</span>
               </button>
             </div>
           )}
 
+          {/* STAGE 2: DRIVER_ARRIVED -> Passenger Verification */}
           {activeTrip.status === 'DRIVER_ARRIVED' && (
             <div className="space-y-4 pt-2">
               {/* Option 1: Scan Customer QR Code */}
-              <div className="p-4 rounded-2xl bg-gradient-to-br from-emerald-950/70 to-slate-900 border border-emerald-500/40 shadow-lg text-center space-y-3">
+              <div className="p-4 rounded-2xl bg-neutral-950 border border-emerald-500/30 text-center space-y-2.5">
                 <div className="flex items-center justify-center gap-2 text-emerald-400 font-bold text-sm">
                   <QrCode className="w-5 h-5" />
                   <span>Scan Passenger QR Code</span>
                 </div>
-                <p className="text-xs text-slate-300">
-                  Scan the verification QR code shown on the passenger's Go Mookambika app
+                <p className="text-xs text-neutral-400">
+                  Point camera at the verification QR code on the passenger's screen
                 </p>
                 <button
                   type="button"
                   onClick={() => setCustomerQrModalOpen(true)}
                   disabled={actionLoading}
-                  className="w-full py-3.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white font-bold text-sm shadow-md transition-all active:scale-95 flex items-center justify-center gap-2"
+                  className="btn-uber-primary !py-3 !rounded-xl"
                 >
-                  <QrCode className="w-4 h-4" />
-                  <span>OPEN CAMERA QR SCANNER</span>
+                  <QrCode className="w-4 h-4 text-black" />
+                  <span>OPEN QR SCANNER</span>
                 </button>
               </div>
 
               {/* Divider */}
-              <div className="flex items-center gap-3 text-slate-500 text-xs font-semibold uppercase tracking-wider">
-                <div className="h-px flex-1 bg-slate-800" />
-                <span>OR ENTER 6-DIGIT OTP</span>
-                <div className="h-px flex-1 bg-slate-800" />
+              <div className="flex items-center gap-3 text-neutral-500 text-xs font-semibold uppercase tracking-wider">
+                <div className="h-px flex-1 bg-white/[0.06]" />
+                <span>OR ENTER 6-DIGIT PIN</span>
+                <div className="h-px flex-1 bg-white/[0.06]" />
               </div>
 
-              {/* Option 2: 6-Digit OTP Input */}
-              <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 text-center space-y-3">
-                <div className="text-xs text-slate-300 font-semibold">
-                  Ask passenger for 6-digit Ride Start PIN
+              {/* Option 2: 6-Digit PIN */}
+              <div className="p-4 rounded-2xl bg-black border border-white/[0.08] text-center space-y-3">
+                <div className="text-xs text-neutral-300 font-semibold">
+                  Ask passenger for their 6-digit Ride PIN
                 </div>
                 <input
                   type="tel"
@@ -966,30 +1044,30 @@ export function QueuePage({ auth, onUpdateDriver }: QueuePageProps) {
                   value={otpInput}
                   onChange={e => setOtpInput(e.target.value.replace(/\D/g, ''))}
                   placeholder="• • • • • •"
-                  className="w-52 mx-auto text-center font-mono font-bold text-2xl tracking-[0.25em] py-2.5 bg-slate-900 border border-emerald-500/40 rounded-xl text-emerald-400 outline-none focus:border-emerald-400 placeholder:text-slate-600"
+                  className="w-48 mx-auto text-center font-mono font-bold text-2xl tracking-[0.25em] py-2 bg-neutral-900 border border-emerald-500/40 rounded-xl text-emerald-400 outline-none focus:border-emerald-400 placeholder:text-neutral-600"
                 />
                 <button
                   type="button"
                   onClick={() => handleStartTrip()}
                   disabled={actionLoading || otpInput.length < 4}
-                  className="w-full py-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-bold text-sm shadow-md transition-all active:scale-95 flex items-center justify-center gap-2"
+                  className="btn-uber-primary !py-3 !rounded-xl"
                 >
-                  <Check className="w-4 h-4" />
-                  <span>VERIFY OTP & START TRIP</span>
+                  <Check className="w-4 h-4 stroke-[3]" />
+                  <span>VERIFY PIN & START TRIP</span>
                 </button>
               </div>
             </div>
           )}
 
-          {/* Trip Started -> Reach Destination & Choose Cash/UPI Payment */}
+          {/* STAGE 3: TRIP_STARTED -> Reached Destination */}
           {activeTrip.status === 'TRIP_STARTED' && paymentStep === 'RUNNING' && (
             <div className="space-y-3 pt-2">
-              <div className="p-3.5 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-center space-y-1">
+              <div className="p-3.5 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-center space-y-0.5">
                 <div className="text-xs text-emerald-400 font-bold flex items-center justify-center gap-1.5">
                   <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
-                  <span>Trip In Progress • Drive Safely</span>
+                  <span>Driving to Destination</span>
                 </div>
-                <div className="text-xl font-mono font-black text-white">
+                <div className="text-2xl font-mono font-black text-white">
                   Fare: ₹{Math.round(activeTrip.fare)}
                 </div>
               </div>
@@ -998,39 +1076,39 @@ export function QueuePage({ auth, onUpdateDriver }: QueuePageProps) {
                 type="button"
                 onClick={() => setPaymentStep('COLLECTING_PAYMENT')}
                 disabled={actionLoading}
-                className="w-full py-4 rounded-xl bg-gradient-to-r from-rose-600 via-rose-500 to-amber-600 hover:from-rose-500 hover:to-amber-500 text-white font-black text-sm shadow-xl shadow-rose-600/30 transition-all active:scale-98 flex items-center justify-center gap-2"
+                className="w-full py-4 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-500 text-black font-black text-sm shadow-xl transition-all active:scale-98 flex items-center justify-center gap-2"
               >
-                <Banknote className="w-5 h-5" />
+                <Banknote className="w-5 h-5 text-black" />
                 <span>REACHED DESTINATION • COLLECT FARE</span>
               </button>
             </div>
           )}
 
-          {/* ─── PAYMENT COLLECTION STEP (ONLY CASH / UPI) ────── */}
+          {/* STAGE 4: PAYMENT COLLECTION (UPI & CASH) */}
           {activeTrip.status === 'TRIP_STARTED' && paymentStep === 'COLLECTING_PAYMENT' && (
             <div className="space-y-4 pt-2">
               {/* Fare Banner */}
-              <div className="p-4 rounded-2xl bg-gradient-to-br from-slate-950 to-slate-900 border border-emerald-500/40 text-center space-y-1 shadow-inner">
-                <div className="text-xs uppercase font-bold tracking-wider text-slate-400">
-                  Total Fare Amount to Collect
+              <div className="p-4 rounded-2xl bg-black border border-emerald-500/40 text-center space-y-1">
+                <div className="text-[11px] uppercase font-bold tracking-wider text-neutral-400">
+                  Total Fare to Collect
                 </div>
-                <div className="text-4xl font-black text-emerald-400 font-mono tracking-tight">
+                <div className="text-4xl font-black text-white font-mono tracking-tight">
                   ₹{Math.round(activeTrip.fare)}
                 </div>
-                <div className="text-[11px] text-slate-400">
-                  Select payment method below: <b className="text-white">UPI QR</b> or <b className="text-white">Cash</b>
+                <div className="text-xs text-neutral-400">
+                  Select payment method: <b className="text-white">UPI QR</b> or <b className="text-white">Cash</b>
                 </div>
               </div>
 
               {/* Payment Mode Switcher Tabs */}
-              <div className="grid grid-cols-2 p-1 bg-slate-950 rounded-2xl border border-slate-800 gap-1">
+              <div className="grid grid-cols-2 p-1 bg-black rounded-2xl border border-white/[0.08] gap-1">
                 <button
                   type="button"
                   onClick={() => setPaymentMode('UPI')}
-                  className={`py-3 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all ${
+                  className={`py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all ${
                     paymentMode === 'UPI'
-                      ? 'bg-gradient-to-r from-emerald-500 to-teal-600 text-slate-950 shadow-md font-black'
-                      : 'text-slate-400 hover:text-white'
+                      ? 'bg-white text-black shadow-md font-black'
+                      : 'text-neutral-400 hover:text-white'
                   }`}
                 >
                   <QrCode className="w-4 h-4" />
@@ -1039,10 +1117,10 @@ export function QueuePage({ auth, onUpdateDriver }: QueuePageProps) {
                 <button
                   type="button"
                   onClick={() => setPaymentMode('CASH')}
-                  className={`py-3 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all ${
+                  className={`py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all ${
                     paymentMode === 'CASH'
-                      ? 'bg-gradient-to-r from-amber-500 to-yellow-600 text-slate-950 shadow-md font-black'
-                      : 'text-slate-400 hover:text-white'
+                      ? 'bg-amber-400 text-black shadow-md font-black'
+                      : 'text-neutral-400 hover:text-white'
                   }`}
                 >
                   <Banknote className="w-4 h-4" />
@@ -1052,37 +1130,37 @@ export function QueuePage({ auth, onUpdateDriver }: QueuePageProps) {
 
               {/* TAB 1: UPI DYNAMIC QR GENERATION */}
               {paymentMode === 'UPI' && (
-                <div className="p-4 rounded-2xl bg-slate-950 border border-emerald-500/30 text-center space-y-3.5 animate-fade-in shadow-xl">
-                  <div className="space-y-1">
+                <div className="p-4 rounded-2xl bg-black border border-white/[0.08] text-center space-y-3.5 shadow-xl">
+                  <div className="space-y-0.5">
                     <div className="text-xs font-bold text-emerald-400 flex items-center justify-center gap-1.5">
                       <Sparkles className="w-4 h-4" />
                       <span>Scan with any UPI App</span>
                     </div>
-                    <p className="text-[11px] text-slate-400">
-                      GPay, PhonePe, Paytm, BHIM with exact ₹{Math.round(activeTrip.fare)} encoded
+                    <p className="text-[11px] text-neutral-400">
+                      PhonePe, GPay, Paytm, BHIM with exact ₹{Math.round(activeTrip.fare)}
                     </p>
                   </div>
 
                   {/* High Contrast Dynamic QR Code */}
-                  <div className="p-3 bg-white rounded-2xl inline-block shadow-2xl border-4 border-emerald-500/40">
+                  <div className="p-3 bg-white rounded-2xl inline-block shadow-2xl">
                     {dynamicUpiQr ? (
                       <img
                         src={dynamicUpiQr}
                         alt="Total Amount UPI QR"
-                        className="w-56 h-56 mx-auto object-contain"
+                        className="w-52 h-52 mx-auto object-contain"
                       />
                     ) : (
-                      <div className="w-56 h-56 flex items-center justify-center text-slate-400">
-                        Generating UPI QR...
+                      <div className="w-52 h-52 flex items-center justify-center text-neutral-400">
+                        Generating QR...
                       </div>
                     )}
                   </div>
 
                   {/* Payee Details & Quick UPI Edit */}
-                  <div className="p-2.5 rounded-xl bg-slate-900 border border-slate-800 text-left space-y-2">
+                  <div className="p-2.5 rounded-xl bg-neutral-900 border border-white/[0.06] text-left space-y-1.5">
                     <div className="flex items-center justify-between text-xs">
                       <div>
-                        <span className="text-slate-500 text-[10px] block">Receiving UPI ID</span>
+                        <span className="text-neutral-500 text-[10px] block">Receiving UPI ID</span>
                         <span className="font-mono font-bold text-emerald-400 text-xs">
                           {quickUpiInput.trim() || auth.driver?.upiId || 'gomookambika@icici'}
                         </span>
@@ -1093,28 +1171,25 @@ export function QueuePage({ auth, onUpdateDriver }: QueuePageProps) {
                         className="text-[11px] font-bold text-emerald-400 hover:text-emerald-300 flex items-center gap-1 px-2 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/20"
                       >
                         <Edit2 className="w-3 h-3" />
-                        <span>{isEditingUpi ? 'Close' : 'Change UPI'}</span>
+                        <span>{isEditingUpi ? 'Close' : 'Change'}</span>
                       </button>
                     </div>
 
                     {isEditingUpi && (
-                      <div className="pt-2 border-t border-slate-800 space-y-2">
-                        <div className="text-[10px] text-slate-400">
-                          Update UPI ID for this and future payments:
-                        </div>
+                      <div className="pt-2 border-t border-white/[0.06] space-y-2">
                         <div className="flex gap-2">
                           <input
                             type="text"
                             placeholder="yourname@okhdfcbank"
                             value={quickUpiInput}
                             onChange={e => setQuickUpiInput(e.target.value.trim())}
-                            className="flex-1 px-3 py-1.5 rounded-xl bg-slate-950 border border-slate-700 text-white font-mono text-xs focus:outline-none focus:border-emerald-500"
+                            className="flex-1 px-3 py-1.5 rounded-xl bg-black border border-white/[0.12] text-white font-mono text-xs focus:outline-none focus:border-emerald-500"
                           />
                           <button
                             type="button"
                             onClick={handleSaveQuickUpi}
                             disabled={savingQuickUpi}
-                            className="px-3 py-1.5 rounded-xl bg-emerald-500 text-slate-950 font-bold text-xs shrink-0"
+                            className="px-3 py-1.5 rounded-xl bg-emerald-500 text-black font-bold text-xs shrink-0"
                           >
                             {savingQuickUpi ? 'Saving...' : 'Save'}
                           </button>
@@ -1128,30 +1203,30 @@ export function QueuePage({ auth, onUpdateDriver }: QueuePageProps) {
                     type="button"
                     onClick={() => handleFinalizeTrip('UPI')}
                     disabled={actionLoading}
-                    className="w-full py-4 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-slate-950 font-black text-sm shadow-lg shadow-emerald-500/30 transition-all active:scale-95 flex items-center justify-center gap-2"
+                    className="btn-uber-primary"
                   >
                     <Check className="w-5 h-5 stroke-[3]" />
-                    <span>CONFIRM UPI PAYMENT RECEIVED & FINISH RIDE</span>
+                    <span>CONFIRM UPI PAYMENT & FINISH TRIP</span>
                   </button>
                 </div>
               )}
 
               {/* TAB 2: CASH PAYMENT */}
               {paymentMode === 'CASH' && (
-                <div className="p-4 rounded-2xl bg-slate-950 border border-amber-500/30 text-center space-y-4 animate-fade-in shadow-xl">
-                  <div className="w-16 h-16 rounded-2xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400 mx-auto">
-                    <Banknote className="w-9 h-9" />
+                <div className="p-4 rounded-2xl bg-black border border-amber-500/30 text-center space-y-3.5 shadow-xl">
+                  <div className="w-14 h-14 rounded-2xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400 mx-auto">
+                    <Banknote className="w-8 h-8" />
                   </div>
 
-                  <div className="space-y-1">
+                  <div className="space-y-0.5">
                     <div className="text-xs font-bold text-amber-400 uppercase tracking-wider">
                       Collect Cash from Passenger
                     </div>
                     <div className="text-3xl font-black text-white font-mono">
                       ₹{Math.round(activeTrip.fare)}
                     </div>
-                    <p className="text-xs text-slate-400 max-w-xs mx-auto">
-                      Please collect the exact cash amount from passenger before completing the trip.
+                    <p className="text-xs text-neutral-400">
+                      Collect the fare amount directly from the passenger.
                     </p>
                   </div>
 
@@ -1159,10 +1234,10 @@ export function QueuePage({ auth, onUpdateDriver }: QueuePageProps) {
                     type="button"
                     onClick={() => handleFinalizeTrip('CASH')}
                     disabled={actionLoading}
-                    className="w-full py-4 rounded-xl bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-slate-950 font-black text-sm shadow-lg shadow-amber-500/30 transition-all active:scale-95 flex items-center justify-center gap-2"
+                    className="w-full py-4 rounded-2xl bg-amber-400 hover:bg-amber-300 text-black font-black text-sm transition-all active:scale-95 flex items-center justify-center gap-2"
                   >
                     <Check className="w-5 h-5 stroke-[3]" />
-                    <span>COLLECT CASH ₹{Math.round(activeTrip.fare)} & FINISH RIDE</span>
+                    <span>COLLECT CASH ₹{Math.round(activeTrip.fare)} & FINISH</span>
                   </button>
                 </div>
               )}
@@ -1170,28 +1245,28 @@ export function QueuePage({ auth, onUpdateDriver }: QueuePageProps) {
               <button
                 type="button"
                 onClick={() => setPaymentStep('RUNNING')}
-                className="w-full py-2.5 text-xs text-slate-500 hover:text-slate-300 transition-colors"
+                className="w-full py-2 text-xs text-neutral-400 hover:text-white transition-colors"
               >
                 ← Back to Navigation View
               </button>
             </div>
           )}
 
-          {/* ─── TRIP COMPLETED RECEIPT VIEW ─────────────────── */}
+          {/* STAGE 5: TRIP COMPLETED RECEIPT VIEW */}
           {(activeTrip.status === 'TRIP_COMPLETED' || paymentStep === 'COMPLETED') && (
             <div className="space-y-3 pt-2 text-center">
-              <div className="p-5 rounded-3xl bg-emerald-500/10 border border-emerald-500/40 space-y-2">
+              <div className="p-5 rounded-3xl bg-neutral-950 border border-emerald-500/40 space-y-2">
                 <CheckCircle2 className="w-12 h-12 text-emerald-400 mx-auto" />
-                <h4 className="text-lg font-bold text-white">Ride Completed & Settled!</h4>
-                <div className="text-3xl font-black text-emerald-400 font-mono">
+                <h4 className="text-lg font-bold text-white">Ride Completed!</h4>
+                <div className="text-3xl font-black text-white font-mono">
                   ₹{Math.round(activeTrip.fare)}
                 </div>
-                <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-slate-900 border border-emerald-500/30 text-emerald-400">
+                <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-neutral-900 border border-emerald-500/30 text-emerald-400">
                   {paymentMode === 'UPI' ? <QrCode className="w-3.5 h-3.5" /> : <Banknote className="w-3.5 h-3.5" />}
                   <span>{paymentMode === 'UPI' ? 'Paid via UPI Scan & Pay' : 'Paid in Cash'}</span>
                 </div>
-                <div className="text-xs text-slate-400 pt-1">
-                  Trip #{activeTrip.bookingNumber} • Fare added to your earnings
+                <div className="text-xs text-neutral-400 pt-1">
+                  Trip #{activeTrip.bookingNumber} settled & added to daily earnings
                 </div>
               </div>
 
@@ -1203,9 +1278,9 @@ export function QueuePage({ auth, onUpdateDriver }: QueuePageProps) {
                   setPaymentStep('RUNNING');
                   checkMyStatus();
                 }}
-                className="w-full py-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-sm transition-all shadow-md active:scale-95"
+                className="btn-uber-primary"
               >
-                Back to Available Queue
+                <span>RETURN TO AVAILABLE QUEUE</span>
               </button>
             </div>
           )}
@@ -1226,8 +1301,8 @@ export function QueuePage({ auth, onUpdateDriver }: QueuePageProps) {
         onClose={() => setCustomerQrModalOpen(false)}
         onScanSuccess={handleScanCustomerRideQR}
         onScan={handleScanCustomerRideQR}
-        title="Scan Customer Ride QR"
-        subtitle="Align passenger ride QR within frame"
+        title="Scan Passenger Ride QR"
+        subtitle="Align passenger ride QR within viewfinder"
         hideStands={true}
         loading={actionLoading}
       />
