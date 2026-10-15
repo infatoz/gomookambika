@@ -9,6 +9,7 @@
     "build": "tsc -p tsconfig.json && tsc-alias -p tsconfig.json",
     "start": "node dist/app.js",
     "setup": "tsx src/scripts/setup.ts",
+    "seed:admin": "tsx src/scripts/seed-admin.ts",
     "create-super-admin": "tsx src/scripts/create-super-admin.ts",
     "clean-db": "tsx src/scripts/reset-db.ts",
     "test": "vitest run",

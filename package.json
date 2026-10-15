@@ -9,6 +9,7 @@
     "dev:customer": "pnpm --filter customer-pwa dev",
     "dev:driver": "pnpm --filter driver-pwa dev",
     "dev:admin": "pnpm --filter admin-pwa dev",
+    "seed:admin": "pnpm --filter server seed:admin",
     "build": "pnpm --recursive build",
     "build:packages": "pnpm --filter './packages/**' build",
     "test": "pnpm --recursive test",
