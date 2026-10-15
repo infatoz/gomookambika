@@ -510,6 +510,16 @@ export function CreateBookingModal({ open, onClose, onSuccess }: CreateBookingMo
                       <span className="font-mono font-bold text-emerald-300 bg-slate-900/80 px-1.5 py-0.5 rounded text-[10px]">
                         ₹{fr.fixedPrice || fr.baseFare}
                       </span>
+                      {fr.roundTripPrice && (
+                        <span className="text-[10px] text-amber-300 bg-amber-950/60 px-1 py-0.5 rounded font-mono">
+                          RT ₹{fr.roundTripPrice}
+                        </span>
+                      )}
+                      {fr.tollIncluded && (
+                        <span className="text-[9px] text-sky-300 bg-sky-950/60 px-1 rounded">
+                          Tolls incl.
+                        </span>
+                      )}
                     </button>
                   );
                 })}

@@ -1035,6 +1035,13 @@ router.post('/pricing-rules', async (req, res) => {
     isBidirectional = true,
     tripType,
     fixedPrice,
+    roundTripPrice,
+    tollIncluded = false,
+    parkingIncluded = false,
+    freeWaitingMinutes = 0,
+    nightChargeMultiplier,
+    estimatedDurationMinutes,
+    tags,
     baseFare,
     minimumKm,
     ratePerKm,
@@ -1060,12 +1067,19 @@ router.post('/pricing-rules', async (req, res) => {
     destinationLocationId: destinationLocationId || undefined,
     isBidirectional: isBidirectional !== false,
     tripType: tripType || undefined,
-    fixedPrice: fixedPrice !== undefined ? Number(fixedPrice) : undefined,
-    baseFare: baseFare !== undefined ? Number(baseFare) : undefined,
-    minimumKm: minimumKm !== undefined ? Number(minimumKm) : undefined,
-    ratePerKm: ratePerKm !== undefined ? Number(ratePerKm) : undefined,
-    includedKm: includedKm !== undefined ? Number(includedKm) : undefined,
-    extraKmRate: extraKmRate !== undefined ? Number(extraKmRate) : undefined,
+    fixedPrice: fixedPrice !== undefined && fixedPrice !== '' ? Number(fixedPrice) : undefined,
+    roundTripPrice: roundTripPrice !== undefined && roundTripPrice !== '' ? Number(roundTripPrice) : undefined,
+    tollIncluded: Boolean(tollIncluded),
+    parkingIncluded: Boolean(parkingIncluded),
+    freeWaitingMinutes: freeWaitingMinutes ? Number(freeWaitingMinutes) : 0,
+    nightChargeMultiplier: nightChargeMultiplier !== undefined && nightChargeMultiplier !== '' ? Number(nightChargeMultiplier) : undefined,
+    estimatedDurationMinutes: estimatedDurationMinutes ? Number(estimatedDurationMinutes) : undefined,
+    tags: Array.isArray(tags) ? tags : undefined,
+    baseFare: baseFare !== undefined && baseFare !== '' ? Number(baseFare) : undefined,
+    minimumKm: minimumKm !== undefined && minimumKm !== '' ? Number(minimumKm) : undefined,
+    ratePerKm: ratePerKm !== undefined && ratePerKm !== '' ? Number(ratePerKm) : undefined,
+    includedKm: includedKm !== undefined && includedKm !== '' ? Number(includedKm) : undefined,
+    extraKmRate: extraKmRate !== undefined && extraKmRate !== '' ? Number(extraKmRate) : undefined,
     description: description?.trim() || undefined,
     status,
     createdBy: (req as any).user?.userId,
@@ -1094,6 +1108,13 @@ router.put('/pricing-rules/:id', async (req, res) => {
     isBidirectional,
     tripType,
     fixedPrice,
+    roundTripPrice,
+    tollIncluded,
+    parkingIncluded,
+    freeWaitingMinutes,
+    nightChargeMultiplier,
+    estimatedDurationMinutes,
+    tags,
     baseFare,
     minimumKm,
     ratePerKm,
@@ -1112,6 +1133,13 @@ router.put('/pricing-rules/:id', async (req, res) => {
   if (isBidirectional !== undefined) rule.isBidirectional = Boolean(isBidirectional);
   if (tripType !== undefined) rule.tripType = tripType || undefined;
   if (fixedPrice !== undefined) rule.fixedPrice = fixedPrice !== '' ? Number(fixedPrice) : undefined;
+  if (roundTripPrice !== undefined) rule.roundTripPrice = roundTripPrice !== '' ? Number(roundTripPrice) : undefined;
+  if (tollIncluded !== undefined) rule.tollIncluded = Boolean(tollIncluded);
+  if (parkingIncluded !== undefined) rule.parkingIncluded = Boolean(parkingIncluded);
+  if (freeWaitingMinutes !== undefined) rule.freeWaitingMinutes = freeWaitingMinutes !== '' ? Number(freeWaitingMinutes) : 0;
+  if (nightChargeMultiplier !== undefined) rule.nightChargeMultiplier = nightChargeMultiplier !== '' ? Number(nightChargeMultiplier) : undefined;
+  if (estimatedDurationMinutes !== undefined) rule.estimatedDurationMinutes = estimatedDurationMinutes !== '' ? Number(estimatedDurationMinutes) : undefined;
+  if (tags !== undefined) rule.tags = Array.isArray(tags) ? tags : [];
   if (baseFare !== undefined) rule.baseFare = baseFare !== '' ? Number(baseFare) : undefined;
   if (minimumKm !== undefined) rule.minimumKm = minimumKm !== '' ? Number(minimumKm) : undefined;
   if (ratePerKm !== undefined) rule.ratePerKm = ratePerKm !== '' ? Number(ratePerKm) : undefined;
@@ -1128,6 +1156,73 @@ router.put('/pricing-rules/:id', async (req, res) => {
     .populate('vehicleCategoryId', 'name code');
 
   res.json({ success: true, message: 'Pricing rule updated successfully', data: populated });
+});
+
+// Admin Live Diagnostic Test Calculator
+router.post('/pricing-rules/test-calculator', async (req, res) => {
+  const { fareService } = await import('@/services/FareService');
+  const { mapService } = await import('@/services/MapService');
+  const { Location } = await import('@/models/Location');
+
+  const {
+    originLocationId,
+    destinationLocationId,
+    customDistanceKm,
+    vehicleCategoryId,
+    tripType = 'ONE_WAY',
+    waitingMinutes = 0,
+    hasToll = false,
+    hasParking = false,
+    isNightTime = false,
+  } = req.body;
+
+  let distanceKm = Number(customDistanceKm) || 0;
+  let originLoc = null;
+  let destLoc = null;
+
+  if (originLocationId) originLoc = await Location.findById(originLocationId);
+  if (destinationLocationId) destLoc = await Location.findById(destinationLocationId);
+
+  if ((!distanceKm || distanceKm <= 0) && originLoc && destLoc) {
+    const route = await mapService.route(
+      { latitude: originLoc.geoPoint.coordinates[1], longitude: originLoc.geoPoint.coordinates[0] },
+      { latitude: destLoc.geoPoint.coordinates[1], longitude: destLoc.geoPoint.coordinates[0] }
+    );
+    distanceKm = route?.distanceKm ?? mapService.haversineDistance(
+      { latitude: originLoc.geoPoint.coordinates[1], longitude: originLoc.geoPoint.coordinates[0] },
+      { latitude: destLoc.geoPoint.coordinates[1], longitude: destLoc.geoPoint.coordinates[0] }
+    );
+  }
+
+  if (!distanceKm || distanceKm <= 0) {
+    distanceKm = 25; // default test distance
+  }
+
+  const testScheduledAt = isNightTime
+    ? new Date(new Date().setHours(23, 30, 0, 0))
+    : new Date(new Date().setHours(14, 0, 0, 0));
+
+  const result = await fareService.calculateFare({
+    distanceKm,
+    vehicleCategoryId,
+    tripType: tripType as any,
+    scheduledAt: testScheduledAt,
+    pickupLocationId: originLocationId || undefined,
+    dropLocationId: destinationLocationId || undefined,
+    waitingMinutes: Number(waitingMinutes) || 0,
+    hasToll: Boolean(hasToll),
+    hasParking: Boolean(hasParking),
+  });
+
+  res.json({
+    success: true,
+    data: {
+      ...result,
+      testDistanceKm: distanceKm,
+      origin: originLoc?.name,
+      destination: destLoc?.name,
+    },
+  });
 });
 
 router.patch('/pricing-rules/:id/status', async (req, res) => {

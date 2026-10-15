@@ -304,6 +304,13 @@ export interface PricingRuleItem {
   isBidirectional?: boolean;
   tripType?: TripType;
   fixedPrice?: number;
+  roundTripPrice?: number;
+  tollIncluded?: boolean;
+  parkingIncluded?: boolean;
+  freeWaitingMinutes?: number;
+  nightChargeMultiplier?: number;
+  estimatedDurationMinutes?: number;
+  tags?: string[];
   baseFare?: number;
   minimumKm?: number;
   ratePerKm?: number;

@@ -82,15 +82,15 @@ export class FareService {
     let effectiveRatePerKm: number | undefined = undefined;
 
     if (rule) {
-      const result = this.applyRule(rule, distanceKm, input.durationMinutes);
+      const result = this.applyRule(rule, distanceKm, tripType, input.durationMinutes);
       baseFare = result.baseFare;
       distanceFare = result.distanceFare;
       appliedRuleType = rule.ruleType;
-      appliedRuleName = rule.name;
+      appliedRuleName = result.appliedRuleName || rule.name;
       effectiveRatePerKm = rule.ratePerKm ?? rule.extraKmRate;
       if (category) {
         waitingChargeRate = category.waitingChargePerMin ?? 0;
-        nightMultiplier = category.nightChargeMultiplier ?? 1.0;
+        nightMultiplier = rule.nightChargeMultiplier !== undefined ? rule.nightChargeMultiplier : (category.nightChargeMultiplier ?? 1.0);
       }
     } else {
       // Fallback: use vehicle category default rates with multi-tier trip support:
@@ -159,9 +159,25 @@ export class FareService {
     // Calculate additional charges
     const additionalCharges = await this.calculateAdditionalCharges(input, vehicleCategoryId);
 
-    // Apply category waiting rate if waiting minutes provided and not overridden by special rule
-    if (input.waitingMinutes && input.waitingMinutes > 0 && additionalCharges.waiting === 0 && waitingChargeRate > 0) {
-      additionalCharges.waiting = Math.round(input.waitingMinutes * waitingChargeRate * 100) / 100;
+    // Apply rule bundling policy (e.g., tolls or parking included in flat route package)
+    if (rule?.tollIncluded) {
+      additionalCharges.toll = 0;
+    }
+    if (rule?.parkingIncluded) {
+      additionalCharges.parking = 0;
+    }
+
+    // Apply complimentary waiting minutes if route specifies free waiting time
+    let billableWaitingMinutes = input.waitingMinutes || 0;
+    if (rule?.freeWaitingMinutes && rule.freeWaitingMinutes > 0) {
+      billableWaitingMinutes = Math.max(0, billableWaitingMinutes - rule.freeWaitingMinutes);
+    }
+
+    // Apply category waiting rate if billable waiting minutes provided and not overridden by special rule
+    if (billableWaitingMinutes > 0 && additionalCharges.waiting === 0 && waitingChargeRate > 0) {
+      additionalCharges.waiting = Math.round(billableWaitingMinutes * waitingChargeRate * 100) / 100;
+    } else if (billableWaitingMinutes === 0 && rule?.freeWaitingMinutes && rule.freeWaitingMinutes > 0) {
+      additionalCharges.waiting = 0;
     }
 
     // Apply configured driver allowance for round trips if not already added by special rule
@@ -346,20 +362,39 @@ export class FareService {
   private applyRule(
     rule: IPricingRule,
     distanceKm: number,
-    durationMinutes?: number
-  ): { baseFare: number; distanceFare: number } {
+    tripType: TripType = TripType.ONE_WAY,
+    _durationMinutes?: number
+  ): { baseFare: number; distanceFare: number; appliedRuleName?: string } {
     switch (rule.ruleType) {
       case PriceRuleType.FIXED:
       case PriceRuleType.LOCATION_TO_LOCATION: {
-        const fixedFare = rule.fixedPrice ?? 0;
+        const isRoundTrip = tripType === TripType.ROUND_TRIP;
+        let fixedFare = rule.fixedPrice ?? 0;
+        let appliedRuleName = rule.name;
+
+        if (isRoundTrip) {
+          if (rule.roundTripPrice && rule.roundTripPrice > 0) {
+            fixedFare = rule.roundTripPrice;
+            appliedRuleName = `${rule.name} (Round Trip Package)`;
+          } else if (fixedFare > 0) {
+            // Apply standard 1.8x round-trip package rate with 10% concession
+            fixedFare = Math.round(fixedFare * 1.8);
+            appliedRuleName = `${rule.name} (Round Trip)`;
+          }
+        }
+
         let distanceFare = 0;
+        const effectiveIncludedKm = rule.includedKm && rule.includedKm > 0
+          ? (isRoundTrip ? rule.includedKm * 2 : rule.includedKm)
+          : 0;
+
         // If includedKm is configured and actual distance exceeds it:
-        if (rule.includedKm && rule.includedKm > 0 && distanceKm > rule.includedKm) {
-          const extraKm = distanceKm - rule.includedKm;
+        if (effectiveIncludedKm > 0 && distanceKm > effectiveIncludedKm) {
+          const extraKm = distanceKm - effectiveIncludedKm;
           const rate = rule.extraKmRate ?? rule.ratePerKm ?? 0;
           distanceFare = Math.round(extraKm * rate * 100) / 100;
         }
-        return { baseFare: fixedFare, distanceFare };
+        return { baseFare: fixedFare, distanceFare, appliedRuleName };
       }
 
       case PriceRuleType.PER_KM: {

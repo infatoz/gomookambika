@@ -23,6 +23,10 @@ export interface FixedRouteItem {
   name: string;
   ruleType: string;
   fixedPrice: number;
+  roundTripPrice?: number;
+  tollIncluded?: boolean;
+  parkingIncluded?: boolean;
+  freeWaitingMinutes?: number;
   includedKm?: number;
   description?: string;
   originLocationId?: LocationOption;
@@ -195,11 +199,25 @@ export function UberLocalRideCard({
                         <p className="text-[11px] text-neutral-500 line-clamp-1">
                           {route.description || `Guaranteed flat fare • Up to ${route.includedKm || 50} km`}
                         </p>
-                        <div className="flex items-center gap-2 pt-0.5">
+                        <div className="flex flex-wrap items-center gap-1.5 pt-1">
                           <span className="text-[10px] px-2 py-0.5 bg-neutral-100 text-neutral-700 rounded-md font-semibold">
                             {catName}
                           </span>
-                          <span className="text-[10px] text-neutral-400">Fixed rate</span>
+                          {route.roundTripPrice && (
+                            <span className="text-[10px] px-1.5 py-0.5 bg-emerald-50 text-emerald-700 rounded-md font-bold border border-emerald-200">
+                              RT: ₹{route.roundTripPrice.toLocaleString()}
+                            </span>
+                          )}
+                          {route.tollIncluded && (
+                            <span className="text-[10px] px-1.5 py-0.5 bg-sky-50 text-sky-700 rounded-md font-medium border border-sky-200">
+                              ✓ Tolls Incl.
+                            </span>
+                          )}
+                          {route.freeWaitingMinutes && route.freeWaitingMinutes > 0 ? (
+                            <span className="text-[10px] px-1.5 py-0.5 bg-amber-50 text-amber-700 rounded-md font-medium border border-amber-200">
+                              ✓ {route.freeWaitingMinutes}m Free Wait
+                            </span>
+                          ) : null}
                         </div>
                       </div>
 

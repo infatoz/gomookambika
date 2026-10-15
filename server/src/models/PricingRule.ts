@@ -20,6 +20,13 @@ export interface IPricingRule extends Document {
   isBidirectional?: boolean;
   tripType?: TripType;
   fixedPrice?: number;
+  roundTripPrice?: number;
+  tollIncluded?: boolean;
+  parkingIncluded?: boolean;
+  freeWaitingMinutes?: number;
+  nightChargeMultiplier?: number;
+  estimatedDurationMinutes?: number;
+  tags?: string[];
   baseFare?: number;
   minimumKm?: number;
   ratePerKm?: number;
@@ -61,6 +68,13 @@ const pricingRuleSchema = new Schema<IPricingRule>(
     isBidirectional: { type: Boolean, default: true },
     tripType: { type: String, enum: Object.values(TripType) },
     fixedPrice: { type: Number, min: 0 },
+    roundTripPrice: { type: Number, min: 0 },
+    tollIncluded: { type: Boolean, default: false },
+    parkingIncluded: { type: Boolean, default: false },
+    freeWaitingMinutes: { type: Number, min: 0, default: 0 },
+    nightChargeMultiplier: { type: Number, min: 0.5, max: 3.0 },
+    estimatedDurationMinutes: { type: Number, min: 0 },
+    tags: [{ type: String, trim: true }],
     baseFare: { type: Number, min: 0 },
     minimumKm: { type: Number, min: 0 },
     ratePerKm: { type: Number, min: 0 },
