@@ -24,7 +24,6 @@ import {
   ArrowLeftRight,
   Plus,
   Search,
-  Sparkles,
   Trash2,
   Edit3,
   CheckCircle2,
@@ -159,15 +158,6 @@ export function PricingRulesPage() {
     },
   });
 
-  const seedDefaultsMutation = useMutation({
-    mutationFn: async () => {
-      return apiClient.post('/admin/pricing-rules/seed-defaults', {});
-    },
-    onSuccess: (res: any) => {
-      toast.success(res.data?.message || 'Default fixed routes generated successfully');
-      queryClient.invalidateQueries({ queryKey: ['admin-pricing-rules'] });
-    },
-  });
 
   // Open modal for Create
   const handleOpenCreate = () => {
@@ -446,15 +436,6 @@ export function PricingRulesPage() {
 
         <div className="flex items-center gap-2 flex-wrap">
           <Button
-            icon={<Sparkles size={16} className="text-amber-500" />}
-            onClick={() => seedDefaultsMutation.mutate()}
-            loading={seedDefaultsMutation.isPending}
-            className="border-amber-500/30 text-amber-600 dark:text-amber-300 hover:border-amber-400 bg-amber-500/10 font-medium"
-          >
-            Seed Popular Temple Routes
-          </Button>
-
-          <Button
             type="primary"
             icon={<Plus size={16} />}
             onClick={handleOpenCreate}
@@ -618,7 +599,7 @@ export function PricingRulesPage() {
         confirmLoading={createOrUpdateMutation.isPending}
         okText={editingRule ? 'Save Changes' : 'Create Route Fare'}
         width={680}
-        destroyOnClose
+        destroyOnHidden
       >
         <Form form={form} layout="vertical" className="mt-4">
           <Form.Item

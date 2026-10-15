@@ -10,6 +10,7 @@
     "start": "node dist/app.js",
     "setup": "tsx src/scripts/setup.ts",
     "create-super-admin": "tsx src/scripts/create-super-admin.ts",
+    "clean-db": "tsx src/scripts/reset-db.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",

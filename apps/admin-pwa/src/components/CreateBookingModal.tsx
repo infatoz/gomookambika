@@ -345,7 +345,7 @@ export function CreateBookingModal({ open, onClose, onSuccess }: CreateBookingMo
       footer={null}
       width={780}
       centered
-      destroyOnClose
+      destroyOnHidden
       title={
         <div className="flex items-center gap-2.5 py-1">
           <div className="w-9 h-9 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-500">
