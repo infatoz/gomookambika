@@ -15,6 +15,7 @@ import {
   Row,
   Col,
   Badge,
+  InputNumber,
 } from 'antd';
 import {
   SearchOutlined,
@@ -128,6 +129,41 @@ export function QueuePage() {
   const [removingEntry, setRemovingEntry] = useState<QueueEntry | null>(null);
   const [qrModalData, setQrModalData] = useState<{ standName: string; qrUrl: string } | null>(null);
   const [qrLoading, setQrLoading] = useState(false);
+
+  // Dynamic Driver Acceptance Timeout State & Controls
+  const [timeoutModalOpen, setTimeoutModalOpen] = useState(false);
+  const [customTimeoutInput, setCustomTimeoutInput] = useState<number>(30);
+  const [isSavingTimeout, setIsSavingTimeout] = useState(false);
+
+  const { data: timeoutData, refetch: refetchTimeout } = useQuery<{ success: boolean; timeoutSeconds: number }>({
+    queryKey: ['dispatch-timeout'],
+    queryFn: async () => {
+      const res = await apiClient.get('/admin/dispatch-settings/timeout');
+      return res.data;
+    },
+    refetchInterval: 20000,
+  });
+
+  const currentTimeout = timeoutData?.timeoutSeconds ?? 30;
+
+  const handleUpdateTimeout = async (newSeconds: number) => {
+    if (!newSeconds || newSeconds < 5 || newSeconds > 300) {
+      toast.error('Driver acceptance time limit must be between 5 and 300 seconds');
+      return;
+    }
+    setIsSavingTimeout(true);
+    try {
+      await apiClient.patch('/admin/dispatch-settings/timeout', { timeoutSeconds: newSeconds });
+      toast.success(`Driver trip acceptance time limit updated to ${newSeconds}s`);
+      qc.invalidateQueries({ queryKey: ['dispatch-timeout'] });
+      qc.invalidateQueries({ queryKey: ['admin-system-settings'] });
+      setTimeoutModalOpen(false);
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || err?.message || 'Failed to update time limit');
+    } finally {
+      setIsSavingTimeout(false);
+    }
+  };
 
   // 1. Fetch all taxi stands for the dropdown selector
   const { data: standsData, isLoading: standsLoading } = useQuery<TaxiStand[]>({
@@ -471,7 +507,30 @@ export function QueuePage() {
           </Text>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          {/* Dynamic Driver Trip Acceptance Time Limit Widget */}
+          <div className="flex items-center gap-2 bg-gradient-to-r from-amber-500/10 via-indigo-500/10 to-blue-500/10 px-3 py-1.5 rounded-xl border border-indigo-200/80 shadow-xs">
+            <div className="flex items-center gap-1.5 text-xs text-slate-700">
+              <ClockCircleOutlined className="text-indigo-600" />
+              <span className="font-semibold hidden sm:inline">Trip Accept Timer:</span>
+              <span className="font-bold sm:hidden">Timer:</span>
+              <span className="font-mono font-black text-xs px-2 py-0.5 rounded-md bg-indigo-600 text-white shadow-xs">
+                {currentTimeout}s
+              </span>
+            </div>
+            <Button
+              type="primary"
+              size="small"
+              onClick={() => {
+                setCustomTimeoutInput(currentTimeout);
+                setTimeoutModalOpen(true);
+              }}
+              className="!text-[11px] !font-bold !bg-indigo-600 hover:!bg-indigo-700 !rounded-lg !h-6 !px-2.5"
+            >
+              Change
+            </Button>
+          </div>
+
           {/* Auto Refresh Toggle */}
           <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-xl border border-slate-200 text-xs text-slate-600 shadow-sm">
             <span
@@ -490,7 +549,10 @@ export function QueuePage() {
           {/* Manual Refresh Button */}
           <Button
             icon={<ReloadOutlined spin={queueFetching} />}
-            onClick={() => refetchQueue()}
+            onClick={() => {
+              refetchQueue();
+              refetchTimeout();
+            }}
             disabled={!selectedStandId}
           >
             Refresh
@@ -803,6 +865,90 @@ export function QueuePage() {
             </div>
           </div>
         )}
+      </Modal>
+
+      {/* Dynamic Driver Acceptance Time Limit Modal */}
+      <Modal
+        title={
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold">
+              <ClockCircleOutlined />
+            </div>
+            <div>
+              <div className="text-base font-bold text-slate-900">Driver Trip Acceptance Time Limit</div>
+              <div className="text-xs font-normal text-slate-500">
+                Dynamic countdown timer given to drivers to accept or decline rides
+              </div>
+            </div>
+          </div>
+        }
+        open={timeoutModalOpen}
+        onCancel={() => setTimeoutModalOpen(false)}
+        footer={null}
+        destroyOnHidden
+        width={480}
+      >
+        <div className="space-y-5 pt-3">
+          <div className="p-3.5 rounded-xl bg-amber-50/80 border border-amber-200 text-xs text-amber-900 flex items-start gap-2.5">
+            <span className="text-base shrink-0">⚡</span>
+            <span>
+              <strong>Instant Real-time Effect:</strong> Changing this value immediately applies to all future trip dispatches across all driver devices and stand queues.
+            </span>
+          </div>
+
+          <div>
+            <div className="text-xs font-bold text-slate-600 uppercase tracking-wider mb-2">
+              Quick Presets
+            </div>
+            <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
+              {[15, 30, 45, 60, 90, 120].map(sec => (
+                <button
+                  key={sec}
+                  type="button"
+                  onClick={() => {
+                    setCustomTimeoutInput(sec);
+                    handleUpdateTimeout(sec);
+                  }}
+                  disabled={isSavingTimeout}
+                  className={`py-2 px-1 rounded-xl text-xs font-black transition-all border ${
+                    currentTimeout === sec
+                      ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
+                      : 'bg-white hover:bg-slate-50 text-slate-700 border-slate-200 hover:border-indigo-300'
+                  }`}
+                >
+                  {sec}s
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="space-y-2 pt-2 border-t border-slate-100">
+            <div className="text-xs font-bold text-slate-600 uppercase tracking-wider">
+              Custom Time Limit (5 - 300 seconds)
+            </div>
+            <div className="flex items-center gap-2">
+              <InputNumber
+                min={5}
+                max={300}
+                step={5}
+                value={customTimeoutInput}
+                onChange={val => val && setCustomTimeoutInput(val)}
+                suffix="seconds"
+                className="w-full"
+                size="large"
+              />
+              <Button
+                type="primary"
+                size="large"
+                loading={isSavingTimeout}
+                onClick={() => handleUpdateTimeout(customTimeoutInput)}
+                className="!bg-indigo-600 hover:!bg-indigo-700 shrink-0 font-bold"
+              >
+                Apply Limit
+              </Button>
+            </div>
+          </div>
+        </div>
       </Modal>
     </div>
   );

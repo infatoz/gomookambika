@@ -545,16 +545,41 @@ export function SettingsPage() {
                       <Col xs={24} md={12}>
                         <Form.Item
                           name="driverAcceptTimeout"
-                          label="Trip Offer Acceptance Countdown (seconds)"
-                          help="Time given to the driver at the front of the queue to accept a ride."
+                          label={
+                            <div className="flex items-center justify-between w-full">
+                              <span>Trip Offer Acceptance Countdown (seconds)</span>
+                              <Tag color="purple" className="text-[10px] font-bold">
+                                ⚡ Dynamic Time Limit
+                              </Tag>
+                            </div>
+                          }
+                          help="Time given to the driver at the front of the queue to accept a ride (5 to 300 seconds). Dynamic & editable at any time."
                         >
-                          <InputNumber
-                            min={15}
-                            max={90}
-                            step={5}
-                            suffix="seconds"
-                            style={{ width: '100%' }}
-                          />
+                          <div className="space-y-2">
+                            <InputNumber
+                              min={5}
+                              max={300}
+                              step={5}
+                              suffix="seconds"
+                              style={{ width: '100%' }}
+                              onChange={() => setHasChanges(true)}
+                            />
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="text-[11px] text-slate-500 font-medium">Quick presets:</span>
+                              {[15, 30, 45, 60, 90, 120].map(sec => (
+                                <Tag
+                                  key={sec}
+                                  className="cursor-pointer hover:border-indigo-500 hover:text-indigo-600 font-mono text-xs font-semibold"
+                                  onClick={() => {
+                                    form.setFieldValue('driverAcceptTimeout', sec);
+                                    setHasChanges(true);
+                                  }}
+                                >
+                                  {sec}s
+                                </Tag>
+                              ))}
+                            </div>
+                          </div>
                         </Form.Item>
                       </Col>
 

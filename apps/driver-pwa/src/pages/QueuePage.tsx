@@ -284,6 +284,8 @@ export function QueuePage({ auth, onUpdateDriver, onNavigateToEarnings }: QueueP
 
     // Listen for trip offer from server
     const handleTripOffer = (payload: any) => {
+      const dynamicTimeout = Number(payload.timeoutSeconds) || Number(payload.expiresIn) || 30;
+      setOfferCountdown(dynamicTimeout);
       setTripOffer({
         tripId: payload.tripId || payload.bookingId,
         bookingId: payload.bookingId,
@@ -294,7 +296,8 @@ export function QueuePage({ auth, onUpdateDriver, onNavigateToEarnings }: QueueP
         distanceKm: payload.distanceKm || 0,
         passengers: payload.passengers || 1,
         vehicleCategory: payload.vehicleCategory,
-        expiresIn: payload.timeoutSeconds || 30,
+        expiresIn: dynamicTimeout,
+        timeoutSeconds: dynamicTimeout,
         scheduledAt: payload.scheduledAt,
       });
 
@@ -313,8 +316,15 @@ export function QueuePage({ auth, onUpdateDriver, onNavigateToEarnings }: QueueP
       } catch {}
     };
 
+    const handleTripOfferTimeout = () => {
+      setTripOffer(null);
+      setOfferCountdown(0);
+    };
+
     socket.on('trip:offer:sent', handleTripOffer);
     socket.on('TRIP_OFFER_SENT', handleTripOffer);
+    socket.on('trip:offer:timeout', handleTripOfferTimeout);
+    socket.on('TRIP_OFFER_TIMEOUT', handleTripOfferTimeout);
 
     socket.on('trip:status:changed', (data: any) => {
       if (data.status === 'COMPLETED') {
@@ -330,12 +340,31 @@ export function QueuePage({ auth, onUpdateDriver, onNavigateToEarnings }: QueueP
       socket.off('connect_error');
       socket.off('trip:offer:sent', handleTripOffer);
       socket.off('TRIP_OFFER_SENT', handleTripOffer);
+      socket.off('trip:offer:timeout', handleTripOfferTimeout);
+      socket.off('TRIP_OFFER_TIMEOUT', handleTripOfferTimeout);
       socket.off('trip:status:changed');
       if (socket.connected) {
         socket.disconnect();
       }
     };
   }, [auth.token, fetchTodayEarnings]);
+
+  // Trip offer second-by-second countdown timer
+  useEffect(() => {
+    if (!tripOffer) return;
+
+    const interval = setInterval(() => {
+      setOfferCountdown(prev => {
+        if (prev <= 1) {
+          setTripOffer(null);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [tripOffer]);
 
   // 3. Check current queue status on mount
   const checkMyStatus = useCallback(async () => {
@@ -812,23 +841,48 @@ export function QueuePage({ auth, onUpdateDriver, onNavigateToEarnings }: QueueP
         <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-end justify-center p-0 sm:p-4">
           <div className="w-full max-w-md bg-neutral-900 border-t sm:border border-emerald-500/40 rounded-t-3xl sm:rounded-3xl p-5 shadow-2xl space-y-4 slide-up-smooth max-h-[95vh] overflow-y-auto">
             {/* Header with countdown */}
-            <div className="flex items-center justify-between border-b border-white/[0.08] pb-3">
-              <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-bold">
-                  <Car className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="font-extrabold text-white text-base">Incoming Trip Request</h3>
-                  <div className="text-[11px] text-neutral-400 font-mono">
-                    {tripOffer.bookingNumber || 'Ride Request'}
+            <div className="border-b border-white/[0.08] pb-3 space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-9 h-9 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-bold">
+                    <Car className="w-5 h-5" />
                   </div>
+                  <div>
+                    <h3 className="font-extrabold text-white text-base">Incoming Trip Request</h3>
+                    <div className="text-[11px] text-neutral-400 font-mono">
+                      {tripOffer.bookingNumber || 'Ride Request'}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Dynamic countdown badge */}
+                <div
+                  className={`flex items-center gap-1.5 px-3 py-1 rounded-full border font-black text-sm font-mono transition-colors ${
+                    offerCountdown <= 5
+                      ? 'bg-rose-500/25 border-rose-500 text-rose-400 animate-pulse'
+                      : offerCountdown <= 10
+                      ? 'bg-amber-500/20 border-amber-500/40 text-amber-400'
+                      : 'bg-emerald-500/20 border-emerald-500/40 text-emerald-400'
+                  }`}
+                >
+                  <Clock className="w-3.5 h-3.5 animate-spin" style={{ animationDuration: '3s' }} />
+                  <span>{offerCountdown}s</span>
                 </div>
               </div>
 
-              {/* Countdown circle */}
-              <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-rose-500/15 border border-rose-500/30 text-rose-400 font-black text-sm font-mono">
-                <Clock className="w-3.5 h-3.5" />
-                <span>{offerCountdown}s</span>
+              {/* Smooth time remaining progress bar */}
+              <div className="w-full bg-neutral-800 rounded-full h-1.5 overflow-hidden">
+                <div
+                  className={`h-full transition-all duration-1000 ease-linear rounded-full ${
+                    offerCountdown <= 5 ? 'bg-rose-500' : offerCountdown <= 10 ? 'bg-amber-400' : 'bg-emerald-400'
+                  }`}
+                  style={{
+                    width: `${Math.max(
+                      0,
+                      Math.min(100, (offerCountdown / (tripOffer.timeoutSeconds || tripOffer.expiresIn || 30)) * 100)
+                    )}%`,
+                  }}
+                />
               </div>
             </div>
 

@@ -976,6 +976,49 @@ router.put('/settings', requireRoles(UserRole.SUPER_ADMIN, UserRole.ASSOCIATION_
   res.json({ success: true, message: 'Settings saved successfully', data: merged });
 });
 
+// ─── QUICK DISPATCH TIMEOUT ENDPOINTS ────────────────────────
+router.get('/dispatch-settings/timeout', async (_req, res) => {
+  const { SystemSetting } = await import('@/models/SystemSetting');
+  const setting = await SystemSetting.findOne({ key: 'driverAcceptTimeout' });
+  const timeoutSeconds = setting && typeof setting.value === 'number' && setting.value >= 5 ? setting.value : 30;
+  res.json({ success: true, timeoutSeconds });
+});
+
+router.patch('/dispatch-settings/timeout', requireRoles(UserRole.SUPER_ADMIN, UserRole.ASSOCIATION_ADMIN), async (req, res) => {
+  const { SystemSetting } = await import('@/models/SystemSetting');
+  const { tryGetIO } = await import('@/sockets');
+  const { timeoutSeconds } = req.body;
+
+  const seconds = Number(timeoutSeconds);
+  if (!seconds || isNaN(seconds) || seconds < 5 || seconds > 300) {
+    throw errors.badRequest('Driver acceptance timeout must be between 5 and 300 seconds');
+  }
+
+  await SystemSetting.findOneAndUpdate(
+    { key: 'driverAcceptTimeout' },
+    {
+      key: 'driverAcceptTimeout',
+      value: seconds,
+      category: 'dispatch',
+      description: 'Dynamic time limit given to drivers to accept incoming trip requests',
+      updatedBy: (req as any).user?.userId,
+    },
+    { upsert: true, new: true }
+  );
+
+  const io = tryGetIO();
+  if (io) {
+    io.emit('dispatch:timeout:changed', { timeoutSeconds: seconds });
+    io.emit('settings:updated', { key: 'driverAcceptTimeout', value: seconds });
+  }
+
+  res.json({
+    success: true,
+    message: `Driver trip acceptance time limit updated to ${seconds} seconds`,
+    timeoutSeconds: seconds,
+  });
+});
+
 // ─── FIXED ROUTE FARES & PRICING RULES ────────────────────────
 router.get('/pricing-rules', async (req, res) => {
   const { PricingRule } = await import('@/models/PricingRule');

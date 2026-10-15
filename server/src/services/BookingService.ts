@@ -268,6 +268,7 @@ export class BookingService {
   ): Promise<void> {
     const io = tryGetIO();
     const redis = getRedis();
+    const timeoutSeconds = await this.getDriverAcceptTimeoutSeconds();
 
     // Mark queue entry as OFFERED
     await QueueEntry.findOneAndUpdate(
@@ -281,7 +282,7 @@ export class BookingService {
     // Store offer in Redis with timeout (best-effort)
     const offerKey = redisKeys.driverTripOffer(driverId);
     if (redis) {
-      await redis.setex(offerKey, config.DRIVER_TRIP_ACCEPT_TIMEOUT_SECONDS, booking.id).catch(() => {});
+      await redis.setex(offerKey, timeoutSeconds, booking.id).catch(() => {});
     }
 
     // Build trip offer payload
@@ -295,7 +296,7 @@ export class BookingService {
       estimatedFare: booking.fareSnapshot.total,
       vehicleCategory: booking.vehicleCategoryId.toString(),
       scheduledAt: booking.scheduledAt?.toISOString(),
-      timeoutSeconds: config.DRIVER_TRIP_ACCEPT_TIMEOUT_SECONDS,
+      timeoutSeconds,
     };
 
     // Send offer to driver via socket rooms
@@ -309,6 +310,7 @@ export class BookingService {
         bookingNumber: booking.bookingNumber,
         driverId,
         estimatedFare: booking.fareSnapshot?.total,
+        timeoutSeconds,
       });
     }
 
@@ -326,9 +328,29 @@ export class BookingService {
         // Driver didn't respond — timeout
         await this.handleDriverTimeout(booking, driverId, allEligible);
       }
-    }, config.DRIVER_TRIP_ACCEPT_TIMEOUT_SECONDS * 1000);
+    }, timeoutSeconds * 1000);
 
-    logger.info(`Trip offer sent to driver ${driverId} for booking ${booking.id}`);
+    logger.info(`Trip offer sent to driver ${driverId} for booking ${booking.id} (timeout: ${timeoutSeconds}s)`);
+  }
+
+  /**
+   * Dynamically fetch driver acceptance time limit from SystemSetting (admin configured)
+   */
+  async getDriverAcceptTimeoutSeconds(): Promise<number> {
+    try {
+      const { SystemSetting } = await import('@/models/SystemSetting');
+      const setting = await SystemSetting.findOne({ key: 'driverAcceptTimeout' });
+      if (setting && typeof setting.value === 'number' && setting.value >= 5) {
+        return Math.round(setting.value);
+      }
+      if (setting && typeof setting.value === 'string' && !isNaN(Number(setting.value))) {
+        const num = Number(setting.value);
+        if (num >= 5) return Math.round(num);
+      }
+    } catch (err) {
+      logger.warn('Failed to fetch dynamic driverAcceptTimeout from DB, using fallback', err);
+    }
+    return config.DRIVER_TRIP_ACCEPT_TIMEOUT_SECONDS || 30;
   }
 
   async acceptTrip(driverId: string, bookingId: string): Promise<ITrip> {
