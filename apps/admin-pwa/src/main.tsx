@@ -6,6 +6,25 @@ import { ConfigProvider, App as AntApp } from 'antd';
 import App from './App';
 import './index.css';
 
+// Service Worker auto-update and immediate controller change reload
+if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js', { scope: '/' }).then((reg) => {
+      setInterval(() => {
+        reg.update().catch(() => {});
+      }, 60 * 1000);
+    }).catch(() => {});
+  });
+
+  let refreshing = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!refreshing) {
+      refreshing = true;
+      window.location.reload();
+    }
+  });
+}
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
