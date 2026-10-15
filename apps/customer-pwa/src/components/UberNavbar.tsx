@@ -4,7 +4,7 @@ import { User, Menu, X, Car, Clock, Shield, LogOut, ChevronRight, Phone, Compass
 import { AuthState } from '@/lib/api';
 import { AppLogo } from './AppLogo';
 
-export type NavTab = 'ride' | 'local' | 'trips' | 'profile';
+export type NavTab = 'ride' | 'trips' | 'profile';
 
 interface UberNavbarProps {
   auth: AuthState;
@@ -48,18 +48,7 @@ export function UberNavbar({
                     : 'text-neutral-700 hover:bg-neutral-100'
                 }`}
               >
-                Ride
-              </button>
-              <button
-                onClick={() => onSelectTab('local')}
-                className={`flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-semibold transition-all ${
-                  activeTab === 'local'
-                    ? 'bg-black text-white shadow-sm'
-                    : 'text-neutral-700 hover:bg-neutral-100'
-                }`}
-              >
-                <Compass className="w-3.5 h-3.5" />
-                <span>Local Ride</span>
+                Book Ride
               </button>
               {onOpenVehiclesModal && (
                 <button
@@ -68,7 +57,7 @@ export function UberNavbar({
                   className="flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-semibold text-neutral-700 hover:bg-neutral-100 transition-all"
                 >
                   <Car className="w-3.5 h-3.5 text-neutral-500" />
-                  <span>Vehicles</span>
+                  <span>Fleet & Rates</span>
                 </button>
               )}
               <button
@@ -79,7 +68,7 @@ export function UberNavbar({
                     : 'text-neutral-700 hover:bg-neutral-100'
                 }`}
               >
-                Activity
+                My Trips
               </button>
             </nav>
           </div>
@@ -182,22 +171,6 @@ export function UberNavbar({
                 <div className="flex items-center gap-3">
                   <Car className="w-5 h-5" />
                   <span>Book a Ride</span>
-                </div>
-                <ChevronRight className="w-4 h-4 text-neutral-400" />
-              </button>
-
-              <button
-                onClick={() => {
-                  onSelectTab('local');
-                  setDrawerOpen(false);
-                }}
-                className={`w-full flex items-center justify-between px-3 py-3 rounded-xl text-sm font-semibold transition-colors ${
-                  activeTab === 'local' ? 'bg-neutral-100 text-black' : 'hover:bg-neutral-50 text-neutral-800'
-                }`}
-              >
-                <div className="flex items-center gap-3">
-                  <Compass className="w-5 h-5" />
-                  <span>Local Ride</span>
                 </div>
                 <ChevronRight className="w-4 h-4 text-neutral-400" />
               </button>

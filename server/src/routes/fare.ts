@@ -19,7 +19,7 @@ router.get('/fixed-routes', async (_req, res) => {
   })
     .populate('originLocationId', 'name type address geoPoint')
     .populate('destinationLocationId', 'name type address geoPoint')
-    .populate('vehicleCategoryId', 'name code')
+    .populate('vehicleCategoryId', 'name code baseFare ratePerKm seatCapacity')
     .sort({ priority: 1, fixedPrice: 1 });
 
   res.json({ success: true, data: rules });

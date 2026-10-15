@@ -4,10 +4,10 @@ import { UberBookingPage } from './pages/UberBookingPage';
 import { BookingsListPage } from './pages/BookingsListPage';
 import { ProfilePage } from './pages/ProfilePage';
 import { UberLoginModal } from './components/UberLoginModal';
-import { Car, Clock, User, Compass } from 'lucide-react';
+import { Car, Clock, User } from 'lucide-react';
 import { AuthState } from './lib/api';
 
-type Tab = 'ride' | 'local' | 'trips' | 'profile';
+type Tab = 'ride' | 'trips' | 'profile';
 
 function App() {
   const [activeTab, setActiveTab] = useState<Tab>('ride');
@@ -74,13 +74,11 @@ function App() {
 
       {/* ─── MAIN APPLICATION VIEW ─── */}
       <main className="flex-1 pb-16 md:pb-0 overflow-hidden relative">
-        {(activeTab === 'ride' || activeTab === 'local') && (
+        {activeTab === 'ride' && (
           <UberBookingPage
             auth={auth}
             onUpdateAuth={handleLogin}
             onOpenGlobalLogin={() => setGlobalLoginOpen(true)}
-            activeService={activeTab === 'local' ? 'local' : 'ride'}
-            onChangeService={service => setActiveTab(service)}
             vehiclesModalOpen={vehiclesModalOpen}
             onToggleVehiclesModal={setVehiclesModalOpen}
           />
@@ -103,11 +101,11 @@ function App() {
         )}
       </main>
 
-      {/* ─── MOBILE BOTTOM BAR (EXACT UBER RIDER TABS) ─── */}
+      {/* ─── MOBILE BOTTOM BAR (CLEAN 3-TAB RIDERS NAV) ─── */}
       <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-neutral-200 flex items-center justify-around py-2 safe-area-bottom shadow-lg">
         <button
           onClick={() => setActiveTab('ride')}
-          className={`flex flex-col items-center justify-center py-1 px-3 transition-colors ${
+          className={`flex flex-col items-center justify-center py-1 px-4 transition-colors ${
             activeTab === 'ride' ? 'text-black' : 'text-neutral-400 hover:text-neutral-700'
           }`}
         >
@@ -118,20 +116,8 @@ function App() {
         </button>
 
         <button
-          onClick={() => setActiveTab('local')}
-          className={`flex flex-col items-center justify-center py-1 px-3 transition-colors relative ${
-            activeTab === 'local' ? 'text-black' : 'text-neutral-400 hover:text-neutral-700'
-          }`}
-        >
-          <Compass className="w-5 h-5" strokeWidth={activeTab === 'local' ? 2.5 : 2} />
-          <span className={`text-[10px] mt-1 ${activeTab === 'local' ? 'font-bold' : 'font-medium'}`}>
-            Local Ride
-          </span>
-        </button>
-
-        <button
           onClick={() => setActiveTab('trips')}
-          className={`flex flex-col items-center justify-center py-1 px-3 transition-colors ${
+          className={`flex flex-col items-center justify-center py-1 px-4 transition-colors ${
             activeTab === 'trips' ? 'text-black' : 'text-neutral-400 hover:text-neutral-700'
           }`}
         >

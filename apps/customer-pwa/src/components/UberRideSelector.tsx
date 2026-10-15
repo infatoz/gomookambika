@@ -111,60 +111,8 @@ export function UberRideSelector({
   scheduledLabel = '',
   onOpenScheduleModal,
 }: UberRideSelectorProps) {
-  // If categories are empty, fallback to default display list
-  const displayCategories: VehicleCategoryItem[] =
-    categories.length > 0
-      ? categories
-      : [
-          {
-            _id: '6ac6531652d964d6985b9b04',
-            name: 'Sedan',
-            code: 'SEDAN',
-            seatCapacity: 4,
-            ac: true,
-            description: 'Dzire, Etios, City • Top-rated drivers',
-            baseFare: 100,
-            ratePerKm: 18,
-            popularModels: ['Maruti Suzuki Dzire Tour', 'Honda City'],
-            vehicleCount: 3,
-          },
-          {
-            _id: '6ace272f7f63dda489a559f3',
-            name: 'Hatchback Mini',
-            code: 'HATCHBACK',
-            seatCapacity: 4,
-            ac: true,
-            description: 'WagonR, Swift • Affordable compact rides',
-            baseFare: 80,
-            ratePerKm: 15,
-            popularModels: ['Maruti Suzuki WagonR', 'Swift'],
-            vehicleCount: 2,
-          },
-          {
-            _id: '6acd2d819aca3cc9440ce35c',
-            name: 'SUV',
-            code: 'SUV',
-            seatCapacity: 6,
-            ac: true,
-            description: 'Innova, Ertiga • Extra room for family',
-            baseFare: 150,
-            ratePerKm: 24,
-            popularModels: ['Toyota Innova Crysta', 'Maruti Ertiga'],
-            vehicleCount: 2,
-          },
-          {
-            _id: '6ace272f7f63dda489a55a07',
-            name: 'Auto Rickshaw',
-            code: 'AUTO',
-            seatCapacity: 3,
-            ac: false,
-            description: 'Quick local temple transport',
-            baseFare: 50,
-            ratePerKm: 13,
-            popularModels: ['Bajaj RE Compact'],
-            vehicleCount: 1,
-          },
-        ];
+  // Show ONLY vehicles active in platform
+  const displayCategories: VehicleCategoryItem[] = categories;
 
   // Helper to compute category specific fare accurately from server estimate
   const getCategoryFare = (cat: VehicleCategoryItem): number => {
@@ -202,8 +150,14 @@ export function UberRideSelector({
 
       {/* Vehicle Category Cards List */}
       <div className="py-2 space-y-2.5 overflow-y-auto max-h-[320px] md:max-h-[380px] no-scrollbar pr-1">
-        {displayCategories.map(cat => {
-          const isSelected = selectedCategory?._id === cat._id;
+        {displayCategories.length === 0 ? (
+          <div className="p-8 text-center text-xs text-neutral-500 bg-neutral-50 rounded-2xl border border-neutral-200">
+            <Loader2 className="w-5 h-5 animate-spin mx-auto mb-2 text-neutral-400" />
+            <span>Loading active platform vehicle categories...</span>
+          </div>
+        ) : (
+          displayCategories.map(cat => {
+            const isSelected = selectedCategory?._id === cat._id;
           const fare = getCategoryFare(cat);
           const imageSrc = getVehicleImage(cat);
           const etaText = getEstimatedTime(cat);
@@ -266,8 +220,9 @@ export function UberRideSelector({
                 </div>
               </div>
             );
-          })}
-        </div>
+          })
+        )}
+      </div>
 
         {/* Transparent Accurate Fare Breakdown for Selected Vehicle */}
         {currentEstimate && (

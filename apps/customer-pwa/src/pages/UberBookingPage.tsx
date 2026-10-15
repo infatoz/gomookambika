@@ -1,21 +1,29 @@
 import { useState, useEffect, useCallback } from 'react';
 import { UberMap } from '@/components/UberMap';
 import { UberSearchCard, LocationOption } from '@/components/UberSearchCard';
-import { UberLocalRideCard } from '@/components/UberLocalRideCard';
+import { FullPageLocationSearch, FixedRoutePricingRule } from '@/components/FullPageLocationSearch';
 import { UberRideSelector, VehicleCategoryItem, FareEstimateData } from '@/components/UberRideSelector';
 import { UberTripTracking, ActiveBookingData } from '@/components/UberTripTracking';
 import { UberLoginModal } from '@/components/UberLoginModal';
 import { UberVehiclesModal } from '@/components/UberVehiclesModal';
 import { UberScheduleModal } from '@/components/UberScheduleModal';
 import { api, AuthState } from '@/lib/api';
-import { ArrowLeft, Clock, Car, Compass, AlertCircle, ChevronRight, Sparkles, Calendar } from 'lucide-react';
+import {
+  ArrowLeft,
+  Clock,
+  Car,
+  AlertCircle,
+  ChevronRight,
+  Sparkles,
+  Calendar,
+  MapPin,
+  Search,
+} from 'lucide-react';
 
 interface UberBookingPageProps {
   auth: AuthState;
   onUpdateAuth: (token: string, user: { name?: string; phone: string }) => void;
   onOpenGlobalLogin?: () => void;
-  activeService?: 'ride' | 'local';
-  onChangeService?: (service: 'ride' | 'local') => void;
   vehiclesModalOpen?: boolean;
   onToggleVehiclesModal?: (open: boolean) => void;
 }
@@ -25,30 +33,24 @@ type BookingViewMode = 'search' | 'vehicles' | 'active_trip';
 export function UberBookingPage({
   auth,
   onUpdateAuth,
-  activeService = 'ride',
-  onChangeService,
   vehiclesModalOpen: externalVehiclesModalOpen,
   onToggleVehiclesModal,
 }: UberBookingPageProps) {
-  const [serviceType, setServiceType] = useState<'ride' | 'local'>(activeService);
   const [viewMode, setViewMode] = useState<BookingViewMode>('search');
   const [internalVehiclesModalOpen, setInternalVehiclesModalOpen] = useState(false);
 
-  const isVehiclesModalOpen = externalVehiclesModalOpen !== undefined ? externalVehiclesModalOpen : internalVehiclesModalOpen;
+  const isVehiclesModalOpen =
+    externalVehiclesModalOpen !== undefined
+      ? externalVehiclesModalOpen
+      : internalVehiclesModalOpen;
   const setVehiclesModalOpen = (open: boolean) => {
     setInternalVehiclesModalOpen(open);
     onToggleVehiclesModal?.(open);
   };
 
-  // Sync activeService if changed from outer nav
-  useEffect(() => {
-    if (activeService) {
-      setServiceType(activeService);
-    }
-  }, [activeService]);
-
-  // Trip Type State
-  const [tripType, setTripType] = useState<string>('ONE_WAY');
+  // Full Page Search Locations Modal State
+  const [fullSearchOpen, setFullSearchOpen] = useState(false);
+  const [searchInitialField, setSearchInitialField] = useState<'pickup' | 'drop'>('drop');
 
   // Schedule Ride State
   const [isScheduled, setIsScheduled] = useState(false);
@@ -91,6 +93,7 @@ export function UberBookingPage({
   const [selectedPickupLoc, setSelectedPickupLoc] = useState<LocationOption | null>(null);
   const [selectedDropLoc, setSelectedDropLoc] = useState<LocationOption | null>(null);
   const [locations, setLocations] = useState<LocationOption[]>([]);
+  const [fixedRoutes, setFixedRoutes] = useState<FixedRoutePricingRule[]>([]);
 
   // Vehicle Categories & Selection
   const [categories, setCategories] = useState<VehicleCategoryItem[]>([]);
@@ -111,17 +114,18 @@ export function UberBookingPage({
   const [loginModalOpen, setLoginModalOpen] = useState(false);
   const [pendingBookingTrigger, setPendingBookingTrigger] = useState(false);
 
-  // Fetch Locations & Categories on Mount
+  // 1. Fetch dynamic platform locations, vehicle categories, and fixed routes
   useEffect(() => {
-    // 1. Fetch active admin-verified locations
+    // 1. Fetch active admin-verified platform locations
     api
       .get<{ data: LocationOption[] }>('/locations?status=ACTIVE')
       .then(res => {
         const locs = res.data || [];
         setLocations(locs);
-        const temple = locs.find(l => 
-          l.name.toLowerCase().includes('kollur') || 
-          l.name.toLowerCase().includes('temple')
+        const temple = locs.find(
+          l =>
+            l.name.toLowerCase().includes('kollur') ||
+            l.name.toLowerCase().includes('temple')
         );
         if (temple) {
           setSelectedPickupLoc(temple);
@@ -130,7 +134,7 @@ export function UberBookingPage({
       })
       .catch(() => {});
 
-    // 2. Fetch vehicle categories
+    // 2. Fetch active platform vehicle categories
     api
       .get<{ data: VehicleCategoryItem[] }>('/vehicles/categories')
       .then(res => {
@@ -139,6 +143,14 @@ export function UberBookingPage({
         if (cats.length > 0) {
           setSelectedCategory(cats[0]);
         }
+      })
+      .catch(() => {});
+
+    // 3. Fetch active platform fixed routes & pricing rules
+    api
+      .get<{ data: FixedRoutePricingRule[] }>('/fares/fixed-routes')
+      .then(res => {
+        setFixedRoutes(res.data || []);
       })
       .catch(() => {});
   }, []);
@@ -164,9 +176,8 @@ export function UberBookingPage({
       );
       if (res.data && res.data.length > 0) {
         const b = res.data[0];
-        // If it's TRIP_COMPLETED, only auto-show if not paid yet
         if (b.status === 'TRIP_COMPLETED' && b.paymentStatus === 'PAID') {
-          // Already paid, do not intercept home screen
+          // Already paid
         } else {
           setActiveBooking(b);
           setViewMode('active_trip');
@@ -208,7 +219,10 @@ export function UberBookingPage({
     } else if (dropText.toLowerCase().includes('kundapura')) {
       dLat = 13.6263;
       dLng = 74.6938;
-    } else if (dropText.toLowerCase().includes('airport') || dropText.toLowerCase().includes('ixe')) {
+    } else if (
+      dropText.toLowerCase().includes('airport') ||
+      dropText.toLowerCase().includes('ixe')
+    ) {
       dLat = 12.9613;
       dLng = 74.8893;
     } else if (dropText.toLowerCase().includes('udupi')) {
@@ -227,7 +241,6 @@ export function UberBookingPage({
   // Fetch Fare Estimate when proceeding to vehicle selection
   const fetchFareEstimate = async (
     targetCategory?: VehicleCategoryItem,
-    overrideTripType?: string,
     overridePickupLoc?: LocationOption | null,
     overrideDropLoc?: LocationOption | null
   ) => {
@@ -236,11 +249,13 @@ export function UberBookingPage({
     setLoadingEstimate(true);
     setBookingError('');
 
-    const effectiveTripType = overrideTripType || tripType || 'ONE_WAY';
-    const isMongoId = (id?: string) => typeof id === 'string' && /^[0-9a-fA-F]{24}$/.test(id);
+    const isMongoId = (id?: string) =>
+      typeof id === 'string' && /^[0-9a-fA-F]{24}$/.test(id);
 
-    const activePickup = overridePickupLoc !== undefined ? overridePickupLoc : selectedPickupLoc;
-    const activeDrop = overrideDropLoc !== undefined ? overrideDropLoc : selectedDropLoc;
+    const activePickup =
+      overridePickupLoc !== undefined ? overridePickupLoc : selectedPickupLoc;
+    const activeDrop =
+      overrideDropLoc !== undefined ? overrideDropLoc : selectedDropLoc;
 
     let pLat = 13.8647;
     let pLng = 74.8135;
@@ -285,7 +300,7 @@ export function UberBookingPage({
         pickupLocationId: pLocId,
         dropLocationId: dLocId,
         vehicleCategoryId: cat._id,
-        tripType: effectiveTripType,
+        tripType: 'ONE_WAY',
         scheduledAt: getScheduledDateTime()?.toISOString(),
       });
 
@@ -310,8 +325,11 @@ export function UberBookingPage({
         });
       }
     } catch {
-      // Dynamic fallback calculated from geodesic distance
-      const dist = Math.max(5, Math.round(Math.hypot((dLat - pLat) * 111, (dLng - pLng) * 105)));
+      // Geodesic distance calculation as backup
+      const dist = Math.max(
+        5,
+        Math.round(Math.hypot((dLat - pLat) * 111, (dLng - pLng) * 105))
+      );
       const base = cat.baseFare || 100;
       const rate = cat.ratePerKm || 18;
       const distanceFare = dist * rate;
@@ -334,94 +352,37 @@ export function UberBookingPage({
   };
 
   const handleProceedToVehicles = () => {
-    setTripType('ONE_WAY');
     setViewMode('vehicles');
-    fetchFareEstimate(undefined, 'ONE_WAY');
+    fetchFareEstimate(undefined);
   };
 
-  // Handler when user selects a Fixed Route from Local Ride tab
-  const handleSelectFixedRoute = (route: {
-    origin: LocationOption;
-    destination: LocationOption;
-    vehicleCategoryId?: string;
-    fixedPrice: number;
-    ruleName: string;
-    tripType: 'LOCAL' | 'ONE_WAY' | 'AIRPORT_TRANSFER' | 'OUTSTATION';
-  }) => {
-    setSelectedPickupLoc(route.origin);
-    setPickupText(route.origin.name);
-    setSelectedDropLoc(route.destination);
-    setDropText(route.destination.name);
-    setTripType(route.tripType);
+  // Handler when a route is chosen from FullPageLocationSearch or Fixed Route cards
+  const handleSelectRoute = (
+    pLoc: LocationOption,
+    dLoc: LocationOption,
+    preselectedCategoryId?: string
+  ) => {
+    setSelectedPickupLoc(pLoc);
+    setPickupText(pLoc.name);
+    setSelectedDropLoc(dLoc);
+    setDropText(dLoc.name);
 
-    let targetCat = selectedCategory;
-    if (route.vehicleCategoryId) {
-      const matched = categories.find(c => c._id === route.vehicleCategoryId);
-      if (matched) {
-        targetCat = matched;
-        setSelectedCategory(matched);
+    let targetCat: VehicleCategoryItem | undefined;
+    if (preselectedCategoryId) {
+      targetCat = categories.find(c => c._id === preselectedCategoryId);
+      if (targetCat) {
+        setSelectedCategory(targetCat);
       }
     }
 
-    setFareEstimate({
-      total: route.fixedPrice,
-      baseFare: route.fixedPrice,
-      distanceFare: 0,
-      distanceKm: 50,
-      currency: 'INR',
-      isFixedFare: true,
-      appliedRuleName: route.ruleName,
-    });
-
     setViewMode('vehicles');
-    fetchFareEstimate(targetCat || undefined, route.tripType, route.origin, route.destination);
+    fetchFareEstimate(targetCat, pLoc, dLoc);
   };
 
-  // Handler when user selects an Hourly Rental package from Local Ride tab
-  const handleSelectRentalPackage = (pkg: {
-    hours: number;
-    km: number;
-    title: string;
-    basePrice: number;
-    vehicleCategory?: VehicleCategoryItem;
-  }) => {
-    const defaultTemple = locations.find(l => 
-      l.name.toLowerCase().includes('kollur') || 
-      l.name.toLowerCase().includes('temple')
-    ) || locations[0];
-
-    if (defaultTemple) {
-      setSelectedPickupLoc(defaultTemple);
-      setPickupText(defaultTemple.name);
-    }
-    setSelectedDropLoc(null);
-    setDropText(`${pkg.title} (Driver waits with you)`);
-    setTripType('HOURLY_RENTAL');
-
-    const targetCat = pkg.vehicleCategory || selectedCategory;
-    if (pkg.vehicleCategory) {
-      setSelectedCategory(pkg.vehicleCategory);
-    }
-
-    setFareEstimate({
-      total: pkg.basePrice,
-      baseFare: pkg.basePrice,
-      distanceFare: 0,
-      distanceKm: pkg.km,
-      currency: 'INR',
-      isFixedFare: true,
-      appliedRuleName: pkg.title,
-    });
-
-    setViewMode('vehicles');
-    fetchFareEstimate(targetCat || undefined, 'HOURLY_RENTAL', defaultTemple || null, null);
-  };
-
-  // Perform Booking with authentication check
-  const executeBooking = async (overrideToken?: string) => {
-    const activeToken = overrideToken || auth.token;
+  // Execute Booking
+  const executeBooking = async (tokenOverride?: string) => {
+    const activeToken = tokenOverride || auth.token;
     if (!activeToken) {
-      // Open in-context login sheet
       setPendingBookingTrigger(true);
       setLoginModalOpen(true);
       return;
@@ -430,12 +391,15 @@ export function UberBookingPage({
     setBookingLoading(true);
     setBookingError('');
 
-    const isMongoId = (id?: string) => typeof id === 'string' && /^[0-9a-fA-F]{24}$/.test(id);
-    const pLocId = isMongoId(selectedPickupLoc?._id) ? selectedPickupLoc?._id : undefined;
-    const dLocId = isMongoId(selectedDropLoc?._id) ? selectedDropLoc?._id : undefined;
-
     const scheduledDt = getScheduledDateTime();
-    const effectiveTripType = isScheduled ? 'ADVANCE_BOOKING' : (tripType || 'ONE_WAY');
+    const isMongoId = (id?: string) =>
+      typeof id === 'string' && /^[0-9a-fA-F]{24}$/.test(id);
+    const pLocId = isMongoId(selectedPickupLoc?._id)
+      ? selectedPickupLoc?._id
+      : undefined;
+    const dLocId = isMongoId(selectedDropLoc?._id)
+      ? selectedDropLoc?._id
+      : undefined;
 
     try {
       const res = await api.post<{
@@ -453,7 +417,7 @@ export function UberBookingPage({
       }>(
         '/bookings',
         {
-          tripType: effectiveTripType,
+          tripType: 'ONE_WAY',
           pickupLocation: {
             latitude: pickupCoords.lat,
             longitude: pickupCoords.lng,
@@ -481,24 +445,35 @@ export function UberBookingPage({
         setActiveBooking({
           _id: newBooking._id,
           bookingNumber: newBooking.bookingNumber,
-          status: newBooking.status || (isScheduled ? 'CONFIRMED' : 'SEARCHING_DRIVER'),
+          status:
+            newBooking.status ||
+            (isScheduled ? 'CONFIRMED' : 'SEARCHING_DRIVER'),
           pickupLocation: newBooking.pickupLocation,
           dropLocation: newBooking.dropLocation,
           fareSnapshot: newBooking.fareSnapshot,
           startOTP: newBooking.startOTP,
-          scheduledAt: newBooking.scheduledAt || (scheduledDt ? scheduledDt.toISOString() : undefined),
+          scheduledAt:
+            newBooking.scheduledAt ||
+            (scheduledDt ? scheduledDt.toISOString() : undefined),
         });
         setViewMode('active_trip');
       }
     } catch (e: unknown) {
-      setBookingError(e instanceof Error ? e.message : 'Failed to place booking. Please try again.');
+      setBookingError(
+        e instanceof Error
+          ? e.message
+          : 'Failed to place booking. Please try again.'
+      );
     } finally {
       setBookingLoading(false);
       setPendingBookingTrigger(false);
     }
   };
 
-  const handleLoginSuccess = (token: string, user: { name?: string; phone: string }) => {
+  const handleLoginSuccess = (
+    token: string,
+    user: { name?: string; phone: string }
+  ) => {
     onUpdateAuth(token, user);
     if (pendingBookingTrigger) {
       executeBooking(token);
@@ -507,7 +482,7 @@ export function UberBookingPage({
 
   return (
     <div className="relative w-full h-[calc(100vh-65px)] flex flex-col md:flex-row overflow-hidden bg-neutral-100">
-      {/* ─── LEFT PANEL (DESKTOP: 440px Fixed, MOBILE: Slide-up Bottom Sheet) ─── */}
+      {/* ─── LEFT PANEL (DESKTOP: 460px Fixed, MOBILE: Responsive Bottom Card) ─── */}
       <div className="order-2 md:order-1 w-full md:w-[460px] md:h-full bg-white md:shadow-2xl z-30 flex flex-col justify-between overflow-hidden border-t md:border-t-0 md:border-r border-neutral-200">
         {/* Panel Header */}
         <div className="px-5 pt-3.5 pb-2.5 md:pt-4 flex items-center justify-between border-b border-neutral-100">
@@ -516,19 +491,18 @@ export function UberBookingPage({
               <button
                 type="button"
                 onClick={() => setViewMode('search')}
-                className="w-8 h-8 rounded-full hover:bg-neutral-100 flex items-center justify-center transition-colors text-black"
+                className="w-8 h-8 rounded-full hover:bg-neutral-100 flex items-center justify-center transition-colors text-black active:scale-95"
+                aria-label="Back to search"
               >
                 <ArrowLeft className="w-4 h-4" />
               </button>
             )}
             <h2 className="font-extrabold text-base md:text-lg text-black tracking-tight">
               {viewMode === 'search'
-                ? serviceType === 'local'
-                  ? 'Local Ride & Packages'
-                  : 'Where are you going?'
+                ? 'Where are you going?'
                 : viewMode === 'vehicles'
-                ? 'Select ride category'
-                : 'Current trip status'}
+                ? 'Select Vehicle Category'
+                : 'Current Trip Status'}
             </h2>
           </div>
 
@@ -547,164 +521,95 @@ export function UberBookingPage({
             </div>
           )}
 
+          {/* VIEW MODE 1: SEARCH & ROUTE SELECTION */}
           {viewMode === 'search' && (
-            <>
-              {/* Vehicles by Type Banner Card */}
-              <div
-                onClick={() => setVehiclesModalOpen(true)}
-                className="flex items-center justify-between p-3 bg-neutral-50 hover:bg-neutral-100 rounded-2xl border border-neutral-200/90 mb-3.5 cursor-pointer transition-all active:scale-[0.99] group shadow-xs"
-              >
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className="w-10 h-10 rounded-xl bg-black text-white flex items-center justify-center shrink-0 shadow-sm">
-                    <Car className="w-5 h-5" />
-                  </div>
-                  <div className="min-w-0">
-                    <div className="text-xs md:text-sm font-bold text-neutral-900">
-                      Explore Vehicles by Type
-                    </div>
-                    <p className="text-[11px] text-neutral-500 truncate mt-0.5">
-                      Sedan, SUV, Hatchback & Auto • View available models & rates
-                    </p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-1 text-xs font-semibold text-neutral-500 group-hover:text-black shrink-0">
-                  <span className="hidden sm:inline text-[11px]">View All</span>
-                  <ChevronRight className="w-4 h-4 transition-transform group-hover:translate-x-0.5" />
-                </div>
-              </div>
-
-              {/* Pickup Time Selector (Ride Now vs Schedule Ahead) */}
-              <div
-                onClick={() => setShowScheduleModal(true)}
-                className={`flex items-center justify-between p-3 rounded-2xl border mb-3.5 cursor-pointer transition-all active:scale-[0.99] group shadow-xs ${
-                  isScheduled
-                    ? 'bg-indigo-50/90 border-indigo-200 hover:bg-indigo-100/80'
-                    : 'bg-neutral-50 hover:bg-neutral-100 border-neutral-200/90'
-                }`}
-              >
-                <div className="flex items-center gap-3 min-w-0">
-                  <div
-                    className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 shadow-sm ${
-                      isScheduled ? 'bg-indigo-600 text-white' : 'bg-black text-white'
-                    }`}
-                  >
-                    {isScheduled ? <Calendar className="w-5 h-5" /> : <Clock className="w-5 h-5" />}
-                  </div>
-                  <div className="min-w-0">
-                    <div className="text-xs md:text-sm font-bold text-neutral-900 flex items-center gap-1.5">
-                      <span>Pickup:</span>
-                      <span className={isScheduled ? 'text-indigo-800' : 'text-neutral-900 font-extrabold'}>
-                        {isScheduled ? getScheduledLabel() : 'Ride Now (Instant)'}
-                      </span>
-                    </div>
-                    <p className="text-[11px] text-neutral-500 truncate mt-0.5">
-                      {isScheduled
-                        ? 'Queued driver will be assigned on trip start date'
-                        : 'Tap to schedule ride for a later date & time'}
-                    </p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-1 text-xs font-semibold text-neutral-600 group-hover:text-black shrink-0">
-                  <span
-                    className={`text-[11px] px-2.5 py-1 rounded-lg border font-bold ${
-                      isScheduled ? 'bg-white text-indigo-700 border-indigo-300' : 'bg-white text-neutral-700 border-neutral-300'
-                    }`}
-                  >
-                    {isScheduled ? 'Change' : 'Schedule'}
-                  </span>
-                </div>
-              </div>
-
-              {/* Service Mode Switcher Tabs (Point-to-Point vs Local Ride) */}
-              <div className="flex items-center p-1 bg-neutral-100 rounded-2xl border border-neutral-200 mb-4">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setServiceType('ride');
-                    onChangeService?.('ride');
-                  }}
-                  className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
-                    serviceType === 'ride'
-                      ? 'bg-white text-black shadow-xs'
-                      : 'text-neutral-500 hover:text-black'
-                  }`}
-                >
-                  <Car className="w-3.5 h-3.5" />
-                  <span>Point to Point</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    setServiceType('local');
-                    onChangeService?.('local');
-                  }}
-                  className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
-                    serviceType === 'local'
-                      ? 'bg-white text-black shadow-xs'
-                      : 'text-neutral-500 hover:text-black'
-                  }`}
-                >
-                  <Compass className="w-3.5 h-3.5" />
-                  <span>Local Ride</span>
-                </button>
-              </div>
-
-              {/* Service Tab Views */}
-              {serviceType === 'ride' ? (
-                <UberSearchCard
-                  pickupText={pickupText}
-                  onChangePickupText={setPickupText}
-                  dropText={dropText}
-                  onChangeDropText={setDropText}
-                  onSelectDropLocation={loc => {
-                    setSelectedDropLoc(loc);
-                    setDropText(loc.name);
-                  }}
-                  onSelectPickupLocation={loc => {
-                    setSelectedPickupLoc(loc);
-                    setPickupText(loc.name);
-                  }}
-                  locations={locations}
-                  onProceedToVehicleSelection={handleProceedToVehicles}
-                />
-              ) : (
-                <UberLocalRideCard
-                  locations={locations}
-                  categories={categories}
-                  onSelectFixedRoute={handleSelectFixedRoute}
-                  onSelectRentalPackage={handleSelectRentalPackage}
-                />
-              )}
-            </>
+            <div className="space-y-3.5">
+              <UberSearchCard
+                pickupText={pickupText}
+                onChangePickupText={setPickupText}
+                dropText={dropText}
+                onChangeDropText={setDropText}
+                onSelectDropLocation={loc => {
+                  setSelectedDropLoc(loc);
+                  setDropText(loc.name);
+                }}
+                onSelectPickupLocation={loc => {
+                  setSelectedPickupLoc(loc);
+                  setPickupText(loc.name);
+                }}
+                onSelectRoute={handleSelectRoute}
+                locations={locations}
+                fixedRoutes={fixedRoutes}
+                onProceedToVehicleSelection={handleProceedToVehicles}
+                onOpenFullSearch={field => {
+                  setSearchInitialField(field);
+                  setFullSearchOpen(true);
+                }}
+              />
+            </div>
           )}
 
+          {/* VIEW MODE 2: VEHICLE CATEGORIES & LIVE PLATFORM PRICING */}
           {viewMode === 'vehicles' && (
-            <UberRideSelector
-              categories={categories}
-              selectedCategory={selectedCategory}
-              onSelectCategory={cat => {
-                setSelectedCategory(cat);
-                if (categoryEstimates[cat._id]) {
-                  setFareEstimate(categoryEstimates[cat._id]);
-                } else {
-                  fetchFareEstimate(cat);
-                }
-              }}
-              fareEstimate={fareEstimate}
-              categoryEstimates={categoryEstimates}
-              loadingEstimate={loadingEstimate}
-              onConfirmRide={() => executeBooking()}
-              bookingLoading={bookingLoading}
-              paymentMethod={paymentMethod}
-              onChangePaymentMethod={setPaymentMethod}
-              onOpenVehiclesModal={() => setVehiclesModalOpen(true)}
-              isScheduled={isScheduled}
-              scheduledLabel={getScheduledLabel()}
-              onOpenScheduleModal={() => setShowScheduleModal(true)}
-            />
+            <div className="space-y-3">
+              {/* Route Summary Pill */}
+              <div className="p-3 rounded-2xl bg-neutral-100/90 border border-neutral-200 flex items-center justify-between gap-2 shadow-2xs">
+                <div className="min-w-0 flex items-center gap-2">
+                  <div className="flex flex-col items-center">
+                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-600" />
+                    <span className="w-0.5 h-3 bg-neutral-400 my-0.5" />
+                    <span className="w-2.5 h-2.5 rounded-xs bg-black" />
+                  </div>
+                  <div className="min-w-0 text-xs">
+                    <div className="font-bold text-neutral-900 truncate">
+                      {pickupText}
+                    </div>
+                    <div className="font-bold text-neutral-900 truncate">
+                      {dropText || 'Destination'}
+                    </div>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearchInitialField('drop');
+                    setFullSearchOpen(true);
+                  }}
+                  className="px-2.5 py-1 text-[11px] font-bold text-neutral-700 bg-white hover:bg-neutral-50 rounded-lg border border-neutral-300 shrink-0 transition-colors shadow-2xs"
+                >
+                  Change
+                </button>
+              </div>
+
+              {/* Vehicle Category Selector */}
+              <UberRideSelector
+                categories={categories}
+                selectedCategory={selectedCategory}
+                onSelectCategory={cat => {
+                  setSelectedCategory(cat);
+                  if (categoryEstimates[cat._id]) {
+                    setFareEstimate(categoryEstimates[cat._id]);
+                  } else {
+                    fetchFareEstimate(cat);
+                  }
+                }}
+                fareEstimate={fareEstimate}
+                categoryEstimates={categoryEstimates}
+                loadingEstimate={loadingEstimate}
+                onConfirmRide={() => executeBooking()}
+                bookingLoading={bookingLoading}
+                paymentMethod={paymentMethod}
+                onChangePaymentMethod={setPaymentMethod}
+                onOpenVehiclesModal={() => setVehiclesModalOpen(true)}
+                isScheduled={isScheduled}
+                scheduledLabel={getScheduledLabel()}
+                onOpenScheduleModal={() => setShowScheduleModal(true)}
+              />
+            </div>
           )}
 
+          {/* VIEW MODE 3: ACTIVE TRIP HUD */}
           {viewMode === 'active_trip' && activeBooking && (
             <UberTripTracking
               booking={activeBooking}
@@ -750,7 +655,9 @@ export function UberBookingPage({
           adminLocations={locations}
           onSelectCoords={coords => {
             if (!dropText) {
-              setDropText(`Lat: ${coords.lat.toFixed(4)}, Lng: ${coords.lng.toFixed(4)}`);
+              setDropText(
+                `Lat: ${coords.lat.toFixed(4)}, Lng: ${coords.lng.toFixed(4)}`
+              );
             }
           }}
           onSelectLocation={(loc, type) => {
@@ -785,6 +692,29 @@ export function UberBookingPage({
           className="w-full h-full"
         />
       </div>
+
+      {/* Full Page Search Locations & Routes */}
+      <FullPageLocationSearch
+        isOpen={fullSearchOpen}
+        onClose={() => setFullSearchOpen(false)}
+        pickupText={pickupText}
+        dropText={dropText}
+        selectedPickupLoc={selectedPickupLoc}
+        selectedDropLoc={selectedDropLoc}
+        onSelectPickup={loc => {
+          setSelectedPickupLoc(loc);
+          setPickupText(loc.name);
+        }}
+        onSelectDrop={loc => {
+          setSelectedDropLoc(loc);
+          setDropText(loc.name);
+          handleProceedToVehicles();
+        }}
+        onSelectRoute={handleSelectRoute}
+        locations={locations}
+        fixedRoutes={fixedRoutes}
+        initialActiveInput={searchInitialField}
+      />
 
       {/* In-Context Login Modal (Shown seamlessly if booking as guest) */}
       <UberLoginModal
