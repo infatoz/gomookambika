@@ -108,7 +108,7 @@ export function OsmLocationPicker({
 
       markerRef.current.bindPopup(`
         <div style="font-family: inherit; font-size: 12px; color: #111;">
-          <strong style="color: #4F46E5;">Selected on OpenStreetMap</strong><br/>
+          <strong style="color: #4F46E5;">Selected Location</strong><br/>
           Lat: ${numLat.toFixed(6)}<br/>
           Lng: ${numLng.toFixed(6)}
         </div>
@@ -151,28 +151,6 @@ export function OsmLocationPicker({
     <div style={{ position: 'relative', width: '100%', height, borderRadius: 12, overflow: 'hidden', border: '1px solid #E2E8F0', marginTop: 8 }}>
       <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
 
-      {/* Floating badge */}
-      <div style={{
-        position: 'absolute',
-        top: 8,
-        left: 8,
-        zIndex: 500,
-        background: 'rgba(15, 23, 42, 0.85)',
-        backdropFilter: 'blur(4px)',
-        color: '#FFFFFF',
-        padding: '3px 8px',
-        borderRadius: 20,
-        fontSize: 10,
-        fontWeight: 700,
-        display: 'flex',
-        alignItems: 'center',
-        gap: 5,
-        boxShadow: '0 2px 6px rgba(0,0,0,0.2)'
-      }}>
-        <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#10B981', display: 'inline-block' }} />
-        <span>OpenStreetMap (No Google Maps)</span>
-      </div>
-
       {!readOnly && (
         <div style={{
           position: 'absolute',
@@ -186,7 +164,7 @@ export function OsmLocationPicker({
           color: '#475569',
           boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
         }}>
-          Click or drag marker on OpenStreetMap to pick location
+          Click or drag marker on map to pick location
         </div>
       )}
     </div>

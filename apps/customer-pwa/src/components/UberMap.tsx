@@ -218,7 +218,7 @@ export function UberMap({
         .bindPopup(
           `
           <div style="font-family: inherit; min-width: 180px; padding: 4px;">
-            <div style="font-weight: 700; font-size: 13px; color: #111827;">Fetching OpenStreetMap details...</div>
+            <div style="font-weight: 700; font-size: 13px; color: #111827;">Fetching location details...</div>
             <div style="font-size: 11px; color: #6B7280; margin-top: 2px;">Lat: ${lat.toFixed(4)}, Lng: ${lng.toFixed(4)}</div>
           </div>
         `,
@@ -245,7 +245,7 @@ export function UberMap({
 
         popupContent.innerHTML = `
           <div style="font-size: 10px; font-weight: 800; text-transform: uppercase; color: #2563EB; letter-spacing: 0.05em; margin-bottom: 2px;">
-            OpenStreetMap Point
+            Location Details
           </div>
           <div style="font-weight: 700; font-size: 13px; color: #0F172A; line-height: 1.3;">
             ${resolvedName}
@@ -261,9 +261,6 @@ export function UberMap({
               Set Drop
             </button>
           </div>
-          <a href="https://www.openstreetmap.org/?mlat=${lat}&mlon=${lng}#map=16/${lat}/${lng}" target="_blank" rel="noreferrer" style="display: block; font-size: 10px; color: #475569; margin-top: 8px; text-decoration: underline; text-align: center;">
-            View full OpenStreetMap record
-          </a>
         `;
 
         popupContent.querySelector('#osm-btn-pickup')?.addEventListener('click', () => {
@@ -285,8 +282,7 @@ export function UberMap({
         marker.setPopupContent(`
           <div style="font-size: 12px; color: #111;">
             <strong>Selected Point</strong><br/>
-            Lat: ${lat.toFixed(4)}, Lng: ${lng.toFixed(4)}<br/>
-            <a href="https://www.openstreetmap.org/?mlat=${lat}&mlon=${lng}#map=16/${lat}/${lng}" target="_blank">Open on OpenStreetMap</a>
+            Lat: ${lat.toFixed(4)}, Lng: ${lng.toFixed(4)}
           </div>
         `);
       } finally {
@@ -380,9 +376,6 @@ export function UberMap({
             Set as Drop
           </button>
         </div>
-        <a href="https://www.openstreetmap.org/?mlat=${lat}&mlon=${lng}#map=16/${lat}/${lng}" target="_blank" rel="noreferrer" style="display: block; font-size: 10px; color: #475569; margin-top: 8px; text-decoration: underline; text-align: center;">
-          Open in OpenStreetMap
-        </a>
       `;
 
       popupContent.querySelector('#osm-poi-pickup')?.addEventListener('click', () => {
@@ -437,7 +430,7 @@ export function UberMap({
       const popupHtml = `
         <div style="font-family: inherit; min-width: 200px; padding: 4px;">
           <div style="font-size: 10px; font-weight: 800; text-transform: uppercase; color: #059669; letter-spacing: 0.05em;">
-            Selected Pickup on OpenStreetMap
+            Pickup Location
           </div>
           <div style="font-weight: 700; font-size: 14px; color: #0F172A; margin-top: 2px;">
             ${pName}
@@ -445,9 +438,6 @@ export function UberMap({
           <div style="font-size: 11px; color: #64748B; margin-top: 2px;">
             GPS: ${pLat.toFixed(4)}° N, ${pLng.toFixed(4)}° E
           </div>
-          <a href="https://www.openstreetmap.org/?mlat=${pLat}&mlon=${pLng}#map=16/${pLat}/${pLng}" target="_blank" rel="noreferrer" style="display: inline-block; font-size: 11px; color: #2563EB; margin-top: 6px; text-decoration: underline;">
-            Inspect on OpenStreetMap.org ↗
-          </a>
         </div>
       `;
 
@@ -484,7 +474,7 @@ export function UberMap({
       const popupHtml = `
         <div style="font-family: inherit; min-width: 200px; padding: 4px;">
           <div style="font-size: 10px; font-weight: 800; text-transform: uppercase; color: #DC2626; letter-spacing: 0.05em;">
-            Selected Destination on OpenStreetMap
+            Destination Location
           </div>
           <div style="font-weight: 700; font-size: 14px; color: #0F172A; margin-top: 2px;">
             ${dName}
@@ -492,9 +482,6 @@ export function UberMap({
           <div style="font-size: 11px; color: #64748B; margin-top: 2px;">
             GPS: ${dLat.toFixed(4)}° N, ${dLng.toFixed(4)}° E
           </div>
-          <a href="https://www.openstreetmap.org/?mlat=${dLat}&mlon=${dLng}#map=16/${dLat}/${dLng}" target="_blank" rel="noreferrer" style="display: inline-block; font-size: 11px; color: #2563EB; margin-top: 6px; text-decoration: underline;">
-            Inspect on OpenStreetMap.org ↗
-          </a>
         </div>
       `;
 
@@ -654,18 +641,10 @@ export function UberMap({
       {/* Leaflet map container */}
       <div ref={mapContainerRef} className="w-full h-full" />
 
-      {/* ─── TOP LEFT: OPENSTREETMAP BRANDING BADGE ─── */}
-      <div className="absolute top-4 left-4 z-20 flex flex-col gap-1.5 pointer-events-auto">
-        <div className="flex items-center gap-2 bg-slate-900/90 text-white backdrop-blur-md px-3 py-1.5 rounded-full border border-slate-700 shadow-lg text-[11px] font-bold">
-          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-          <span>OpenStreetMap (OSM)</span>
-          <span className="text-[10px] text-slate-400 font-normal border-l border-slate-700 pl-2">
-            No Google Maps Required
-          </span>
-        </div>
-
-        {routeInfo && (
-          <div className="bg-white/95 text-neutral-900 backdrop-blur-md px-3 py-1 rounded-xl border border-neutral-200 shadow-md text-xs font-mono font-bold flex items-center gap-2">
+      {/* ─── ROUTE SUMMARY BADGE (WHEN ACTIVE) ─── */}
+      {routeInfo && (
+        <div className="absolute top-4 left-4 z-20 pointer-events-auto">
+          <div className="bg-white/95 text-neutral-900 backdrop-blur-md px-3 py-1.5 rounded-xl border border-neutral-200 shadow-md text-xs font-mono font-bold flex items-center gap-2">
             <Car className="w-3.5 h-3.5 text-emerald-600" />
             <span>{routeInfo.distanceKm} km</span>
             <span className="text-neutral-400">•</span>
@@ -673,8 +652,8 @@ export function UberMap({
               ~{routeInfo.durationMinutes} mins drive
             </span>
           </div>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* ─── TOP RIGHT: LAYER SWITCHER & ACTIONS ─── */}
       <div className="absolute top-4 right-14 z-20 flex items-center gap-2">
@@ -683,16 +662,16 @@ export function UberMap({
             type="button"
             onClick={() => setLayerMenuOpen(!layerMenuOpen)}
             className="h-9 px-3 bg-white/95 hover:bg-white text-neutral-800 rounded-xl shadow-md border border-neutral-200 flex items-center gap-1.5 text-xs font-bold transition-all active:scale-95"
-            title="Choose OpenStreetMap Tile Style"
+            title="Choose Map Style"
           >
             <Layers className="w-3.5 h-3.5 text-neutral-600" />
-            <span className="hidden sm:inline">OSM Layers</span>
+            <span className="hidden sm:inline">Map Layers</span>
           </button>
 
           {layerMenuOpen && (
             <div className="absolute right-0 top-11 bg-white rounded-2xl shadow-2xl border border-neutral-200 p-2 w-52 space-y-1 animate-scale-up z-30">
               <div className="px-2 py-1 text-[10px] font-black uppercase tracking-wider text-neutral-400">
-                OpenStreetMap Styles
+                Map Styles
               </div>
               {(Object.keys(OSM_TILE_LAYERS) as Array<keyof typeof OSM_TILE_LAYERS>).map(key => (
                 <button
@@ -753,7 +732,7 @@ export function UberMap({
 
       {/* ─── BOTTOM LEFT: INTERACTION HINT ─── */}
       <div className="absolute bottom-3 left-4 z-20 hidden md:flex items-center gap-2 px-2.5 py-1 bg-white/90 backdrop-blur-md rounded-lg border border-neutral-200 text-[10px] text-neutral-600 shadow-xs pointer-events-none">
-        <span>💡 Click anywhere on map to select a point on OpenStreetMap</span>
+        <span>💡 Click anywhere on map to select a point</span>
       </div>
     </div>
   );

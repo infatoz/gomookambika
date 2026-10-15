@@ -117,7 +117,7 @@ function OsmAddressSearch({ onSelect }: { onSelect: (r: OsmResult) => void }) {
       {/* Hint text */}
       {!open && !query && (
         <div style={{ fontSize: 11, color: '#9CA3AF', marginTop: '0.35rem', paddingLeft: 2 }}>
-          Powered by Photon (OpenStreetMap) — searches worldwide
+          Search addresses, places, and landmarks worldwide
         </div>
       )}
 
@@ -194,9 +194,9 @@ function OsmAddressSearch({ onSelect }: { onSelect: (r: OsmResult) => void }) {
           {results.length > 0 && (
             <div style={{
               padding: '0.4rem 0.875rem', borderTop: '1px solid #F1F5F9',
-              fontSize: 10, color: '#C4B5FD', display: 'flex', alignItems: 'center', gap: '0.25rem',
+              fontSize: 10, color: '#94A3B8', display: 'flex', alignItems: 'center', gap: '0.25rem',
             }}>
-              <CompassOutlined style={{ fontSize: 10 }} /> Photon · OpenStreetMap contributors
+              <CompassOutlined style={{ fontSize: 10 }} /> Verified Map Location
             </div>
           )}
         </div>
@@ -621,8 +621,8 @@ export function LocationsPage() {
             </div>
           )}
 
-          {/* OSM Search */}
-          <FormSection title="Search Address (OpenStreetMap)">
+          {/* Address Search */}
+          <FormSection title="Search Address">
             <OsmAddressSearch onSelect={handleOsmSelect} />
           </FormSection>
 
@@ -745,7 +745,7 @@ export function LocationsPage() {
             </FormGrid>
           </FormSection>
 
-          <FormSection title="GPS Coordinates & OpenStreetMap">
+          <FormSection title="GPS Coordinates & Map Picker">
             <FormGrid cols={2}>
               <Field label="Latitude" hint="e.g. 13.8617">
                 <input type="number" step="any" className="input-field" placeholder="13.8617" value={form.latitude} onChange={e => sf('latitude', e.target.value)} />
