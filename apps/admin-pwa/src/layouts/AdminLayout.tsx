@@ -10,6 +10,7 @@ import {
 import { useAuthStore } from '@/store/authStore';
 import apiClient from '@/lib/apiClient';
 import { ToastContainer } from '@/components/Toast';
+import { AppLogo } from '@/components/AppLogo';
 
 interface NavChild { label: string; to: string; }
 interface NavSection { type: 'section'; label: string; }
@@ -199,25 +200,13 @@ function SidebarNav({
         gap: '0.625rem', flexShrink: 0,
         justifyContent: collapsed ? 'center' : 'space-between',
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem', minWidth: 0 }}>
-          <div style={{
-            width: '30px', height: '30px', borderRadius: '8px', flexShrink: 0,
-            background: 'linear-gradient(135deg, #6366F1, #4F46E5)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            boxShadow: '0 2px 8px rgba(99,102,241,0.4)',
-          }}>
-            <Landmark size={14} style={{ color: '#fff' }} />
-          </div>
-          {!collapsed && (
-            <div style={{ minWidth: 0 }}>
-              <div style={{ fontSize: '0.8125rem', fontWeight: 700, color: '#fff', lineHeight: 1.2, letterSpacing: '-0.01em', whiteSpace: 'nowrap' }}>
-                Go Mookambika
-              </div>
-              <div style={{ fontSize: '0.6875rem', color: 'var(--sidebar-text)', opacity: 0.7 }}>
-                Admin Portal
-              </div>
-            </div>
-          )}
+        <div style={{ display: 'flex', alignItems: 'center', minWidth: 0 }}>
+          <AppLogo
+            size={30}
+            variant={collapsed ? 'mark' : 'horizontal'}
+            theme="dark"
+            subtitle="Admin Portal"
+          />
         </div>
         {!collapsed && (
           <button onClick={onCollapse} style={{

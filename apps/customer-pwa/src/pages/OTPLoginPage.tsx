@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { api } from '@/lib/api';
+import { AppLogo } from '@/components/AppLogo';
 
 interface OTPLoginPageProps {
   onLogin: (token: string, user: { name?: string; phone: string }) => void;
@@ -55,11 +56,15 @@ export function OTPLoginPage({ onLogin }: OTPLoginPageProps) {
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center px-6 bg-[rgb(15,17,26)]">
-      {/* Hero */}
-      <div className="mb-10 text-center">
-        <div className="text-6xl mb-4">🚖</div>
-        <h1 className="text-3xl font-bold text-white mb-2">Go Mookambika</h1>
-        <p className="text-gray-400">Your trusted taxi service</p>
+      {/* Hero with Brand Logo */}
+      <div className="mb-8 text-center flex flex-col items-center">
+        <AppLogo size={72} variant="mark" theme="dark" className="mb-4" />
+        <h1 className="text-3xl font-black text-white tracking-tight mb-1">
+          <span className="text-amber-500">Go</span> Mookambika
+        </h1>
+        <p className="text-xs text-neutral-400 uppercase tracking-widest font-semibold">
+          Temple & Tourist Taxi Service
+        </p>
       </div>
 
       <div className="w-full max-w-sm space-y-4 fade-in">

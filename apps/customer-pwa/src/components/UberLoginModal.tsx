@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { X, ArrowLeft, Loader2, ShieldCheck } from 'lucide-react';
 import { api } from '@/lib/api';
+import { AppLogo } from './AppLogo';
 
 interface UberLoginModalProps {
   isOpen: boolean;
@@ -98,7 +99,7 @@ export function UberLoginModal({
                 <ArrowLeft className="w-5 h-5 text-neutral-800" />
               </button>
             ) : null}
-            <span className="font-black text-xl tracking-tight">Go Mookambika</span>
+            <AppLogo size={30} variant="horizontal" theme="light" />
           </div>
 
           <button

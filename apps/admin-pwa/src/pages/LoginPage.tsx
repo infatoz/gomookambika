@@ -4,6 +4,7 @@ import { Loader2, Lock, Mail, Landmark, ArrowRight, ShieldCheck, Activity, Users
 import { useAuthStore } from '@/store/authStore';
 import apiClient from '@/lib/apiClient';
 import { antMessage } from '@/lib/antd';
+import { AppLogo } from '@/components/AppLogo';
 
 const features = [
   { icon: Activity, label: 'Real-time Operations', desc: 'Monitor queue & trips live' },
@@ -77,24 +78,9 @@ export function LoginPage() {
           background: 'rgba(255,255,255,0.04)', pointerEvents: 'none',
         }} />
 
-        {/* Logo */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', position: 'relative' }}>
-          <div style={{
-            width: '40px', height: '40px', borderRadius: '10px',
-            background: 'rgba(255,255,255,0.15)', backdropFilter: 'blur(8px)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            border: '1px solid rgba(255,255,255,0.2)',
-          }}>
-            <Landmark size={18} color="#fff" />
-          </div>
-          <div>
-            <div style={{ color: '#fff', fontWeight: 700, fontSize: '0.9375rem', lineHeight: 1.2, letterSpacing: '-0.01em' }}>
-              Go Mookambika
-            </div>
-            <div style={{ color: 'rgba(255,255,255,0.55)', fontSize: '0.6875rem', fontWeight: 500 }}>
-              Taxi Association
-            </div>
-          </div>
+        {/* Brand Logo */}
+        <div style={{ position: 'relative' }}>
+          <AppLogo size={42} variant="horizontal" theme="dark" subtitle="Taxi Association" />
         </div>
 
         {/* Middle content */}
@@ -155,18 +141,8 @@ export function LoginPage() {
         <div style={{ width: '100%', maxWidth: '380px', animation: 'fadeInUp 0.3s ease forwards' }}>
 
           {/* Mobile logo */}
-          <div className="lg:hidden" style={{ display: 'flex', alignItems: 'center', gap: '0.625rem', marginBottom: '2rem' }}>
-            <div style={{
-              width: '34px', height: '34px', borderRadius: '8px',
-              background: 'linear-gradient(135deg, #6366F1, #4F46E5)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-            }}>
-              <Landmark size={15} color="#fff" />
-            </div>
-            <div>
-              <div style={{ fontSize: '0.875rem', fontWeight: 700, color: 'var(--text-heading)' }}>Go Mookambika</div>
-              <div style={{ fontSize: '0.6875rem', color: 'var(--brand-600)', fontWeight: 500 }}>Admin Portal</div>
-            </div>
+          <div className="lg:hidden" style={{ marginBottom: '2rem' }}>
+            <AppLogo size={36} variant="horizontal" theme="light" subtitle="Admin Portal" />
           </div>
 
           {/* Heading */}

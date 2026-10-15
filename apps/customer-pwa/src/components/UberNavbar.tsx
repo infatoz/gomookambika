@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { User, Menu, X, Car, Clock, Shield, LogOut, ChevronRight, Phone, Compass } from 'lucide-react';
 
 import { AuthState } from '@/lib/api';
+import { AppLogo } from './AppLogo';
 
 export type NavTab = 'ride' | 'local' | 'trips' | 'profile';
 
@@ -34,9 +35,7 @@ export function UberNavbar({
               onClick={() => onSelectTab('ride')}
               className="flex items-center gap-2 text-left group"
             >
-              <span className="text-xl md:text-2xl font-black tracking-tight text-black select-none">
-                Go Mookambika
-              </span>
+              <AppLogo size={36} variant="horizontal" theme="light" subtitle="Tourist Taxi" />
             </button>
 
             {/* Desktop Navigation Tabs */}
@@ -130,7 +129,7 @@ export function UberNavbar({
 
           <div className="relative ml-auto w-4/5 max-w-sm bg-white h-full shadow-2xl flex flex-col z-10 p-6 uber-slide-up text-black">
             <div className="flex items-center justify-between pb-6 border-b border-neutral-100">
-              <span className="font-black text-xl tracking-tight">Go Mookambika</span>
+              <AppLogo size={32} variant="horizontal" theme="light" subtitle="Tourist Taxi" />
               <button
                 onClick={() => setDrawerOpen(false)}
                 className="w-9 h-9 rounded-full bg-neutral-100 hover:bg-neutral-200 flex items-center justify-center"

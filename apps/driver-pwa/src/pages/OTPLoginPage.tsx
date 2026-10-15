@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { api } from '@/lib/api';
 import { Car, ShieldCheck, ArrowRight, AlertCircle, ArrowLeft } from 'lucide-react';
+import { AppLogo } from '@/components/AppLogo';
 
 interface OTPLoginPageProps {
   onLogin: (
@@ -102,10 +103,11 @@ export function OTPLoginPage({ onLogin }: OTPLoginPageProps) {
     <div className="min-h-screen min-h-[100dvh] flex flex-col justify-between px-6 py-10 bg-black text-white max-w-md mx-auto">
       {/* Brand Header */}
       <div className="space-y-4 pt-8">
-        <div className="w-14 h-14 rounded-2xl bg-white text-black flex items-center justify-center shadow-[0_8px_30px_rgba(255,255,255,0.15)]">
-          <Car className="w-8 h-8 stroke-[2.5]" />
-        </div>
+        <AppLogo size={58} variant="mark" theme="dark" />
         <div>
+          <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-500/10 border border-amber-500/20 text-amber-400 text-[10px] font-bold uppercase tracking-wider mb-2">
+            Go Mookambika Captain
+          </div>
           <h1 className="text-3xl font-black tracking-tight text-white">Captain Partner</h1>
           <p className="text-xs text-neutral-400 mt-1">Sri Mookambika Tourist Taxi Association</p>
         </div>

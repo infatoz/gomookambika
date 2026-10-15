@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import QRCode from 'qrcode';
 import { api } from '@/lib/api';
+import { AppLogo } from '@/components/AppLogo';
 import {
   User,
   Phone,
@@ -265,10 +266,10 @@ export function DriverProfilePage({ auth, onLogout, onUpdateDriver }: DriverProf
         })}
       </div>
 
-      {/* App Version Info */}
-      <div className="text-center py-2 text-xs text-neutral-500 space-y-0.5">
-        <div className="font-semibold text-neutral-400">Go Mookambika Captain v1.0.0</div>
-        <div>Sri Mookambika Tourist Taxi Association</div>
+      {/* App Version & Association Logo */}
+      <div className="flex flex-col items-center justify-center py-4 text-center space-y-2">
+        <AppLogo size={36} variant="horizontal" theme="dark" subtitle="Sri Mookambika Association" />
+        <div className="text-[11px] text-neutral-500 font-mono">Captain Partner Edition v1.0.0</div>
       </div>
 
       {/* Sign Out Button */}
