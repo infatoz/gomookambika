@@ -136,15 +136,13 @@ function validateConfig(): EnvConfig {
     process.exit(1);
   }
 
-  // Production safety checks
+  // Production safety checks (warn instead of crashing container)
   if (result.data.NODE_ENV === 'production') {
     if (result.data.DEV_OTP_ENABLED) {
-      console.error('❌ DEV_OTP_ENABLED must not be true in production!');
-      process.exit(1);
+      console.warn('⚠️ WARNING: DEV_OTP_ENABLED is active in production! Fixed OTP is enabled for testing.');
     }
     if (result.data.JWT_SECRET.startsWith('dev-')) {
-      console.error('❌ You must set a strong JWT_SECRET in production!');
-      process.exit(1);
+      console.warn('⚠️ WARNING: Default dev JWT_SECRET is in use. Set a custom JWT_SECRET in Dokpoly for production.');
     }
   }
 

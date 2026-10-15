@@ -22,18 +22,26 @@ fi
 echo "[1/3] Checking Nginx configuration..."
 nginx -t
 
-# Start Node.js API server in the background
+# Start Node.js API server in the background with auto-restart supervisor
 echo "[2/3] Starting Express + Socket.IO API server on port 5000..."
-cd /app/server
-node dist/app.js &
+run_node() {
+    cd /app/server
+    while true; do
+        echo "🚀 Starting Node.js API server..."
+        node dist/app.js || true
+        echo "⚠️ Node.js API server exited. Restarting in 3 seconds..."
+        sleep 3
+    done
+}
+run_node &
 NODE_PID=$!
 
 # Graceful shutdown handler
 shutdown() {
     echo "Received termination signal. Shutting down gracefully..."
     kill -TERM "$NODE_PID" 2>/dev/null || true
+    killall node 2>/dev/null || true
     nginx -s quit 2>/dev/null || true
-    wait "$NODE_PID" 2>/dev/null || true
     exit 0
 }
 
