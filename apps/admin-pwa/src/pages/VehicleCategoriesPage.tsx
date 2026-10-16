@@ -3,13 +3,13 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Table, Button, Tag, Space, Input, Typography,
   Tooltip, Switch, InputNumber, Checkbox, Select, Segmented,
-  Divider, Card, Badge,
+  Divider, Card, Badge, Image,
 } from 'antd';
 import {
   PlusOutlined, EditOutlined, DeleteOutlined,
   SearchOutlined, CarOutlined, CheckCircleOutlined, CloseCircleOutlined,
   UndoOutlined, CloudUploadOutlined, CalculatorOutlined,
-  ThunderboltOutlined, ClockCircleOutlined, SyncOutlined,
+  ThunderboltOutlined, ClockCircleOutlined, SyncOutlined, EyeOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType, TablePaginationConfig } from 'antd/es/table';
 import apiClient from '@/lib/apiClient';
@@ -20,6 +20,18 @@ import { Field, FormGrid, FormSection } from '@/components/Modal';
 
 const { Title, Text } = Typography;
 const INR = (n: number) => `₹${Number(n || 0).toLocaleString('en-IN')}`;
+
+export function getVehicleMediaUrl(url?: string): string {
+  if (!url || typeof url !== 'string' || !url.trim()) return '';
+  const trimmed = url.trim();
+  if (trimmed.startsWith('http://') || trimmed.startsWith('https://') || trimmed.startsWith('data:')) {
+    if (trimmed.includes('localhost:5000/uploads/')) {
+      return trimmed.substring(trimmed.indexOf('/uploads/'));
+    }
+    return trimmed;
+  }
+  return trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
+}
 
 export interface TripFareConfig {
   baseFare: number;
@@ -96,6 +108,7 @@ const EMPTY_FORM = {
   code: '',
   description: '',
   icon: '',
+  image: '',
   seatCapacity: 4,
   luggageCapacity: 2,
   ac: true,
@@ -167,6 +180,7 @@ export function VehicleCategoriesPage() {
       code: c.code,
       description: c.description ?? '',
       icon: c.icon || c.image || '',
+      image: c.image || c.icon || '',
       seatCapacity: c.seatCapacity ?? 4,
       luggageCapacity: c.luggageCapacity ?? 2,
       ac: c.ac ?? true,
@@ -244,7 +258,7 @@ export function VehicleCategoriesPage() {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
       const iconUrl = res.data?.data?.url ?? res.data?.url;
-      setForm(f => ({ ...f, icon: iconUrl }));
+      setForm(f => ({ ...f, icon: iconUrl, image: iconUrl }));
       toast('Vehicle PNG icon uploaded successfully');
     } catch (err: unknown) {
       const e = err as { response?: { data?: { message?: string } } };
@@ -264,6 +278,8 @@ export function VehicleCategoriesPage() {
     try {
       const payload = {
         ...form,
+        icon: form.icon,
+        image: form.icon || form.image,
         code: form.code.toUpperCase(),
         // Keep top-level legacy fields synchronized with One Way & Rental
         baseFare: form.fares.oneWay.baseFare,
@@ -395,26 +411,30 @@ export function VehicleCategoriesPage() {
     {
       title: 'Vehicle Type',
       render: (_: unknown, c: VehicleCategory) => {
-        const iconSrc = c.icon || c.image;
+        const rawSrc = c.icon || c.image;
+        const iconSrc = getVehicleMediaUrl(rawSrc);
         return (
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
             <div style={{
-              width: 44, height: 44, borderRadius: 10,
-              background: '#EEF2FF', display: 'flex', alignItems: 'center',
+              width: 48, height: 48, borderRadius: 10,
+              background: '#F8FAFC', display: 'flex', alignItems: 'center',
               justifyContent: 'center', flexShrink: 0, overflow: 'hidden',
-              border: '1px solid #E0E7FF',
+              border: '1px solid #E2E8F0', position: 'relative',
             }}>
               {iconSrc ? (
-                <img
+                <Image
                   src={iconSrc}
                   alt={c.name}
-                  style={{ width: '100%', height: '100%', objectFit: 'contain', padding: 3 }}
-                  onError={(e) => {
-                    (e.currentTarget as HTMLElement).style.display = 'none';
+                  width={44}
+                  height={44}
+                  style={{ objectFit: 'contain' }}
+                  fallback="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='44' height='44' viewBox='0 0 24 24' fill='none' stroke='%234F46E5' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M14 16H9m10 0h3v-3.15a1 1 0 0 0-.84-.99L16 11l-2.7-3.6a1 1 0 0 0-.8-.4H5.5a1 1 0 0 0-.8.4L2 11l-5.16.86a1 1 0 0 0-.84.99V16h3'/><circle cx='6.5' cy='16.5' r='2.5'/><circle cx='16.5' cy='16.5' r='2.5'/></svg>"
+                  preview={{
+                    mask: <EyeOutlined style={{ fontSize: 13 }} />,
                   }}
                 />
               ) : (
-                <CarOutlined style={{ color: '#4F46E5', fontSize: 20 }} />
+                <CarOutlined style={{ color: '#4F46E5', fontSize: 22 }} />
               )}
             </div>
             <div>
@@ -648,9 +668,9 @@ export function VehicleCategoriesPage() {
                 justifyContent: 'center', overflow: 'hidden', flexShrink: 0,
                 border: '1px solid #C7D2FE', position: 'relative',
               }}>
-                {form.icon ? (
+                {form.icon || form.image ? (
                   <img
-                    src={form.icon}
+                    src={getVehicleMediaUrl(form.icon || form.image)}
                     alt="Vehicle icon preview"
                     style={{ width: '100%', height: '100%', objectFit: 'contain', padding: 4 }}
                   />
@@ -661,7 +681,7 @@ export function VehicleCategoriesPage() {
 
               <div style={{ flex: 1 }}>
                 <div style={{ fontWeight: 600, fontSize: 13, color: '#1E293B', marginBottom: 2 }}>
-                  {form.icon ? 'Icon uploaded & stored on server' : 'Upload PNG Icon'}
+                  {form.icon || form.image ? 'Icon uploaded & stored on server' : 'Upload PNG Icon'}
                 </div>
                 <div style={{ fontSize: 12, color: '#64748B', marginBottom: 8 }}>
                   Transparent PNG recommended. Stored in server storage. Max 5MB.
@@ -673,13 +693,13 @@ export function VehicleCategoriesPage() {
                     loading={uploadingIcon}
                     onClick={() => fileInputRef.current?.click()}
                   >
-                    {form.icon ? 'Replace Icon' : 'Select PNG Image'}
+                    {form.icon || form.image ? 'Replace Icon' : 'Select PNG Image'}
                   </Button>
-                  {form.icon && (
+                  {(form.icon || form.image) && (
                     <Button
                       size="small"
                       danger
-                      onClick={() => setForm(f => ({ ...f, icon: '' }))}
+                      onClick={() => setForm(f => ({ ...f, icon: '', image: '' }))}
                     >
                       Remove
                     </Button>

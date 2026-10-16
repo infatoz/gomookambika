@@ -6,7 +6,7 @@ echo " Starting Go Mookambika All-In-One Unified Server "
 echo "=================================================="
 
 # Ensure runtime, log, and uploads directories exist with full permissions
-mkdir -p /app/server/uploads /run /run/nginx /var/log/nginx /var/lib/nginx/tmp /var/www
+mkdir -p /app/server/uploads /app/server/uploads/vehicle-categories /run /run/nginx /var/log/nginx /var/lib/nginx/tmp /var/www
 chmod -R 777 /app/server/uploads /run/nginx /var/log/nginx /var/lib/nginx /var/www 2>/dev/null || true
 
 # Symlink Nginx access/error logs to stdout/stderr for Docker log viewer
