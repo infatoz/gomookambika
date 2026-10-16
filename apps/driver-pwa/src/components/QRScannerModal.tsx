@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { Html5Qrcode, CameraDevice } from 'html5-qrcode';
 import jsQR from 'jsqr';
 import { api } from '@/lib/api';
 import {
@@ -44,19 +43,23 @@ export function QRScannerModal({
   hideStands = false,
 }: QRScannerModalProps) {
   const [cameraError, setCameraError] = useState<string | null>(null);
-  const [isScanning, setIsScanning] = useState(false);
-  const [cameras, setCameras] = useState<CameraDevice[]>([]);
-  const [currentCameraId, setCurrentCameraId] = useState<string | null>(null);
-  const [torchOn, setTorchOn] = useState(false);
+  const [isCameraReady, setIsCameraReady] = useState(false);
+  const [facingMode, setFacingMode] = useState<'environment' | 'user'>('environment');
   const [hasTorch, setHasTorch] = useState(false);
+  const [torchOn, setTorchOn] = useState(false);
   const [manualToken, setManualToken] = useState('');
   const [showManual, setShowManual] = useState(false);
   const [stands, setStands] = useState<TaxiStandQuickOption[]>([]);
   const [decodingFile, setDecodingFile] = useState(false);
 
-  const scannerRef = useRef<Html5Qrcode | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const animFrameRef = useRef<number | null>(null);
+  const lastScanTimeRef = useRef<number>(0);
+  const isScanningRef = useRef<boolean>(false);
+  const isScannedRef = useRef<boolean>(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const containerId = 'gm-qr-reader-video';
 
   // Fetch active taxi stands for quick-testing fallback
   const fetchTaxiStands = useCallback(async () => {
@@ -81,6 +84,9 @@ export function QRScannerModal({
 
   const handleSuccessfulScan = useCallback(
     (decodedText: string) => {
+      if (isScannedRef.current) return;
+      isScannedRef.current = true;
+
       let cleanToken = decodedText.trim();
       if (cleanToken.includes('token=')) {
         try {
@@ -92,8 +98,10 @@ export function QRScannerModal({
         }
       }
 
-      if (navigator.vibrate) {
-        navigator.vibrate([40, 60, 40]);
+      if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+        try {
+          navigator.vibrate([40, 60, 40]);
+        } catch {}
       }
 
       if (onScanSuccess) {
@@ -105,124 +113,234 @@ export function QRScannerModal({
     [onScan, onScanSuccess]
   );
 
-  const startScannerWithCamera = useCallback(
-    async (cameraIdOrConfig: string | MediaTrackConstraints) => {
-      if (!scannerRef.current) return;
+  // Stop camera tracks and cancel scan loop
+  const stopCamera = useCallback(() => {
+    isScanningRef.current = false;
+    if (animFrameRef.current) {
+      cancelAnimationFrame(animFrameRef.current);
+      animFrameRef.current = null;
+    }
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => {
+        try {
+          track.stop();
+        } catch {}
+      });
+      streamRef.current = null;
+    }
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+    setTorchOn(false);
+    setHasTorch(false);
+    setIsCameraReady(false);
+  }, []);
+
+  // Frame scanner loop using BarcodeDetector + jsQR fallback
+  const startScanningLoop = useCallback(() => {
+    let detector: any = null;
+    if (typeof window !== 'undefined' && 'BarcodeDetector' in window) {
+      try {
+        detector = new (window as any).BarcodeDetector({ formats: ['qr_code'] });
+      } catch {
+        detector = null;
+      }
+    }
+
+    const scanFrame = async (timestamp: number) => {
+      if (!isScanningRef.current || isScannedRef.current) return;
+
+      // Scan every ~75ms (~13 fps) for snappy detection with minimal CPU load
+      if (timestamp - lastScanTimeRef.current >= 75) {
+        lastScanTimeRef.current = timestamp;
+
+        const video = videoRef.current;
+        if (
+          video &&
+          video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA &&
+          video.videoWidth > 0 &&
+          video.videoHeight > 0
+        ) {
+          let foundText: string | null = null;
+
+          // 1. Hardware-accelerated BarcodeDetector (Chrome/Safari modern)
+          if (detector) {
+            try {
+              const barcodes = await detector.detect(video);
+              if (barcodes && barcodes.length > 0 && barcodes[0]?.rawValue) {
+                foundText = barcodes[0].rawValue;
+              }
+            } catch {
+              // Ignore and fallback to canvas jsQR
+            }
+          }
+
+          // 2. jsQR Fallback
+          if (!foundText && canvasRef.current) {
+            try {
+              const canvas = canvasRef.current;
+              const ctx = canvas.getContext('2d', { willReadFrequently: true });
+              if (ctx) {
+                // Downsample large video feeds to max 640px for super fast decoding
+                const maxDim = Math.max(video.videoWidth, video.videoHeight);
+                const scale = maxDim > 640 ? 640 / maxDim : 1;
+                const targetW = Math.round(video.videoWidth * scale);
+                const targetH = Math.round(video.videoHeight * scale);
+
+                if (canvas.width !== targetW || canvas.height !== targetH) {
+                  canvas.width = targetW;
+                  canvas.height = targetH;
+                }
+
+                ctx.drawImage(video, 0, 0, targetW, targetH);
+                const imageData = ctx.getImageData(0, 0, targetW, targetH);
+                const code = jsQR(imageData.data, targetW, targetH, {
+                  inversionAttempts: 'dontInvert',
+                });
+
+                if (code && code.data) {
+                  foundText = code.data;
+                }
+              }
+            } catch {
+              // Canvas draw/read error safe ignore
+            }
+          }
+
+          if (foundText && !isScannedRef.current) {
+            handleSuccessfulScan(foundText);
+            return;
+          }
+        }
+      }
+
+      if (isScanningRef.current && !isScannedRef.current) {
+        animFrameRef.current = requestAnimationFrame(scanFrame);
+      }
+    };
+
+    isScanningRef.current = true;
+    animFrameRef.current = requestAnimationFrame(scanFrame);
+  }, [handleSuccessfulScan]);
+
+  // Request camera and initialize video stream
+  const startCamera = useCallback(
+    async (mode: 'environment' | 'user' = facingMode) => {
+      stopCamera();
       setCameraError(null);
-      setIsScanning(false);
+      setIsCameraReady(false);
+      isScannedRef.current = false;
+
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        setCameraError('Camera access is not supported by your browser.');
+        return;
+      }
 
       try {
-        await scannerRef.current.start(
-          cameraIdOrConfig,
-          {
-            fps: 15,
-            qrbox: { width: 220, height: 220 },
-            aspectRatio: 1.0,
-          },
-          decodedText => {
-            handleSuccessfulScan(decodedText);
-          },
-          () => {}
-        );
-
-        setIsScanning(true);
-
+        let stream: MediaStream;
         try {
-          const capabilities = scannerRef.current.getRunningTrackCapabilities() as any;
-          setHasTorch(Boolean(capabilities?.torch));
+          // Attempt with ideal resolution and facingMode
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: {
+              facingMode: { ideal: mode },
+              width: { ideal: 1280 },
+              height: { ideal: 720 },
+            },
+            audio: false,
+          });
+        } catch {
+          // Fallback if ideal constraints fail on specific hardware
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: mode },
+            audio: false,
+          });
+        }
+
+        streamRef.current = stream;
+
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          // Crucial for mobile iOS & Android autoplay policies
+          videoRef.current.setAttribute('playsinline', 'true');
+          videoRef.current.setAttribute('muted', 'true');
+          videoRef.current.muted = true;
+
+          try {
+            await videoRef.current.play();
+          } catch (playErr) {
+            console.warn('Video play caught:', playErr);
+          }
+        }
+
+        // Check if torch/flashlight is supported on the active video track
+        try {
+          const track = stream.getVideoTracks()[0];
+          const caps: any = track?.getCapabilities ? track.getCapabilities() : {};
+          setHasTorch(Boolean(caps?.torch));
         } catch {
           setHasTorch(false);
         }
+
+        setIsCameraReady(true);
+        startScanningLoop();
       } catch (err: any) {
-        console.error('Html5Qrcode start error:', err);
-        setCameraError(
-          err?.name === 'NotAllowedError'
-            ? 'Camera permission denied. Please allow camera access in browser settings.'
-            : 'Could not access device camera. Try uploading a photo of the QR code.'
-        );
-        setIsScanning(false);
+        console.error('Camera access error:', err);
+        setIsCameraReady(false);
+        if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+          setCameraError(
+            'Camera permission was denied. Please allow camera access in your browser or phone settings.'
+          );
+        } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
+          setCameraError('No camera was found on this device.');
+        } else {
+          setCameraError('Could not start camera feed. Please check permissions or upload a QR photo.');
+        }
       }
     },
-    [handleSuccessfulScan]
+    [facingMode, stopCamera, startScanningLoop]
   );
 
+  // Lifecycle when modal opens / closes
   useEffect(() => {
-    if (!isOpen) return;
-
-    let mounted = true;
-    const scanner = new Html5Qrcode(containerId);
-    scannerRef.current = scanner;
-
-    const init = async () => {
-      try {
-        const devices = await Html5Qrcode.getCameras();
-        if (!mounted) return;
-
-        if (devices && devices.length > 0) {
-          setCameras(devices);
-          const backCam =
-            devices.find(d => /back|rear|environment/i.test(d.label)) || devices[devices.length - 1];
-          setCurrentCameraId(backCam.id);
-          await startScannerWithCamera(backCam.id);
-        } else {
-          await startScannerWithCamera({ facingMode: 'environment' });
-        }
-      } catch (err) {
-        if (mounted) {
-          await startScannerWithCamera({ facingMode: 'environment' });
-        }
-      }
-    };
-
-    const timer = setTimeout(() => {
-      init();
-    }, 200);
+    if (isOpen) {
+      isScannedRef.current = false;
+      startCamera(facingMode);
+    } else {
+      stopCamera();
+    }
 
     return () => {
-      mounted = false;
-      clearTimeout(timer);
-      if (scannerRef.current) {
-        if (scannerRef.current.isScanning) {
-          scannerRef.current
-            .stop()
-            .catch(() => {})
-            .then(() => {
-              scannerRef.current?.clear();
-              scannerRef.current = null;
-            });
-        } else {
-          scannerRef.current.clear();
-          scannerRef.current = null;
-        }
-      }
-      setIsScanning(false);
+      stopCamera();
     };
-  }, [isOpen, startScannerWithCamera]);
+  }, [isOpen, startCamera, stopCamera, facingMode]);
 
-  const switchCamera = async () => {
-    if (cameras.length <= 1) return;
-    const currentIndex = cameras.findIndex(c => c.id === currentCameraId);
-    const nextIndex = (currentIndex + 1) % cameras.length;
-    const nextCamera = cameras[nextIndex];
-    setCurrentCameraId(nextCamera.id);
-    await startScannerWithCamera(nextCamera.id);
+  // Flip camera between environment (back) and user (front)
+  const switchCamera = () => {
+    const nextMode = facingMode === 'environment' ? 'user' : 'environment';
+    setFacingMode(nextMode);
+    startCamera(nextMode);
   };
 
+  // Toggle flash torch if supported by device
   const toggleTorch = async () => {
-    if (!scannerRef.current || !hasTorch) return;
+    if (!streamRef.current || !hasTorch) return;
     try {
-      const nextTorch = !torchOn;
-      await scannerRef.current.applyVideoConstraints({
-        advanced: [{ torch: nextTorch } as any],
-      });
-      setTorchOn(nextTorch);
+      const track = streamRef.current.getVideoTracks()[0];
+      if (track) {
+        const nextTorch = !torchOn;
+        await (track as any).applyConstraints({
+          advanced: [{ torch: nextTorch }],
+        });
+        setTorchOn(nextTorch);
+      }
     } catch (e) {
       console.warn('Torch toggle failed', e);
     }
   };
 
+  // Decode QR code from an uploaded image file
   const decodeQRFromImage = async (file: File): Promise<string | null> => {
-    // 1. Browser Native BarcodeDetector
+    // 1. Hardware BarcodeDetector
     if (typeof window !== 'undefined' && 'BarcodeDetector' in window) {
       try {
         const BarcodeDetectorClass = (window as any).BarcodeDetector;
@@ -236,11 +354,11 @@ export function QRScannerModal({
           }
         }
       } catch (e) {
-        console.warn('Native BarcodeDetector attempt skipped:', e);
+        console.warn('BarcodeDetector on image failed, trying jsQR:', e);
       }
     }
 
-    // 2. jsQR with adaptive resolution sampling
+    // 2. jsQR with multi-resolution sampling
     try {
       const objectUrl = URL.createObjectURL(file);
       const img = await new Promise<HTMLImageElement>((resolve, reject) => {
@@ -343,10 +461,21 @@ export function QRScannerModal({
       {/* Center Viewfinder */}
       <div className="flex-1 flex flex-col items-center justify-center my-4 relative">
         <div className="w-72 h-72 rounded-3xl overflow-hidden relative border-2 border-white/[0.12] bg-neutral-950 shadow-2xl flex items-center justify-center">
-          <div id={containerId} className="w-full h-full object-cover" />
+          {/* Live Video Feed */}
+          <video
+            ref={videoRef}
+            autoPlay
+            playsInline
+            muted
+            className={`w-full h-full object-cover transition-opacity duration-300 ${
+              isCameraReady ? 'opacity-100' : 'opacity-0'
+            }`}
+          />
+          {/* Hidden Canvas for QR frame reading */}
+          <canvas ref={canvasRef} className="hidden" />
 
           {/* Viewfinder Target Reticles */}
-          {isScanning && (
+          {isCameraReady && (
             <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
               <div className="w-[210px] h-[210px] relative border-2 border-transparent">
                 <div className="absolute top-0 left-0 w-7 h-7 border-t-4 border-l-4 border-emerald-400 rounded-tl-xl" />
@@ -359,15 +488,15 @@ export function QRScannerModal({
           )}
 
           {/* Camera Loading / Error Overlay */}
-          {!isScanning && (
+          {!isCameraReady && (
             <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center bg-black/90 z-10">
               {cameraError ? (
                 <div className="space-y-3">
                   <AlertTriangle className="w-8 h-8 text-amber-400 mx-auto" />
                   <p className="text-xs text-amber-200 leading-relaxed">{cameraError}</p>
                   <button
-                    onClick={() => startScannerWithCamera({ facingMode: 'environment' })}
-                    className="px-3 py-1.5 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-xs text-white flex items-center justify-center gap-1.5 mx-auto"
+                    onClick={() => startCamera(facingMode)}
+                    className="px-3.5 py-1.5 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-xs text-white font-semibold flex items-center justify-center gap-1.5 mx-auto transition-all active:scale-95"
                   >
                     <RotateCcw className="w-3.5 h-3.5" />
                     <span>Retry Camera</span>
@@ -376,7 +505,7 @@ export function QRScannerModal({
               ) : (
                 <div className="space-y-3">
                   <div className="w-8 h-8 border-2 border-emerald-400 border-t-transparent rounded-full animate-spin mx-auto" />
-                  <p className="text-xs text-neutral-400">Opening camera feed...</p>
+                  <p className="text-xs text-neutral-400">Starting camera feed...</p>
                 </div>
               )}
             </div>
@@ -401,15 +530,14 @@ export function QRScannerModal({
 
         {/* Camera Controls Bar */}
         <div className="flex items-center gap-2.5 mt-4 z-10">
-          {cameras.length > 1 && (
-            <button
-              onClick={switchCamera}
-              className="px-3 py-1.5 rounded-xl bg-neutral-900 border border-white/[0.08] hover:bg-neutral-800 active:scale-95 text-neutral-200 text-xs font-semibold flex items-center gap-1.5 transition-all"
-            >
-              <RotateCcw className="w-3.5 h-3.5" />
-              <span>Flip</span>
-            </button>
-          )}
+          <button
+            onClick={switchCamera}
+            className="px-3 py-1.5 rounded-xl bg-neutral-900 border border-white/[0.08] hover:bg-neutral-800 active:scale-95 text-neutral-200 text-xs font-semibold flex items-center gap-1.5 transition-all"
+            title="Switch front / rear camera"
+          >
+            <RotateCcw className="w-3.5 h-3.5" />
+            <span>Flip</span>
+          </button>
 
           {hasTorch && (
             <button

@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import QRCode from 'qrcode';
 import { api } from '@/lib/api';
 import { QRScannerModal } from '@/components/QRScannerModal';
+import { ringtone } from '@/lib/ringtone';
 import { io, Socket } from 'socket.io-client';
 import {
   Car,
@@ -29,6 +30,8 @@ import {
   TrendingUp,
   ExternalLink,
   ShieldAlert,
+  Volume2,
+  VolumeX,
 } from 'lucide-react';
 
 interface AuthState {
@@ -109,6 +112,7 @@ export function QueuePage({ auth, onUpdateDriver, onNavigateToEarnings }: QueueP
   const [actionLoading, setActionLoading] = useState(false);
   const [todayEarnings, setTodayEarnings] = useState<number>(0);
   const [isSocketConnected, setIsSocketConnected] = useState(false);
+  const [isRingtoneMuted, setIsRingtoneMuted] = useState(false);
 
   // ─── PAYMENT STATES ───────────────────────────────────────
   const [paymentMode, setPaymentMode] = useState<'UPI' | 'CASH'>('UPI');
@@ -301,22 +305,13 @@ export function QueuePage({ auth, onUpdateDriver, onNavigateToEarnings }: QueueP
         scheduledAt: payload.scheduledAt,
       });
 
-      // Haptic feedback & audio chime
-      if (navigator.vibrate) {
-        navigator.vibrate([200, 100, 200, 100, 400]);
-      }
-      try {
-        const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
-        const osc = audioCtx.createOscillator();
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(880, audioCtx.currentTime);
-        osc.connect(audioCtx.destination);
-        osc.start();
-        osc.stop(audioCtx.currentTime + 0.35);
-      } catch {}
+      // Start continuous phone ringing alert & vibration
+      setIsRingtoneMuted(false);
+      ringtone.start();
     };
 
     const handleTripOfferTimeout = () => {
+      ringtone.stop();
       setTripOffer(null);
       setOfferCountdown(0);
     };
@@ -348,23 +343,6 @@ export function QueuePage({ auth, onUpdateDriver, onNavigateToEarnings }: QueueP
       }
     };
   }, [auth.token, fetchTodayEarnings]);
-
-  // Trip offer second-by-second countdown timer
-  useEffect(() => {
-    if (!tripOffer) return;
-
-    const interval = setInterval(() => {
-      setOfferCountdown(prev => {
-        if (prev <= 1) {
-          setTripOffer(null);
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-
-    return () => clearInterval(interval);
-  }, [tripOffer]);
 
   // 3. Check current queue status on mount
   const checkMyStatus = useCallback(async () => {
@@ -449,6 +427,7 @@ export function QueuePage({ auth, onUpdateDriver, onNavigateToEarnings }: QueueP
       countdownRef.current = setInterval(() => {
         setOfferCountdown(prev => {
           if (prev <= 1) {
+            ringtone.stop();
             clearInterval(countdownRef.current!);
             setTripOffer(null);
             return 0;
@@ -461,6 +440,20 @@ export function QueuePage({ auth, onUpdateDriver, onNavigateToEarnings }: QueueP
       if (countdownRef.current) clearInterval(countdownRef.current);
     };
   }, [tripOffer]);
+
+  // Stop phone ringtone when trip offer is cleared
+  useEffect(() => {
+    if (!tripOffer) {
+      ringtone.stop();
+    }
+  }, [tripOffer]);
+
+  // Cleanup ringtone audio context and vibration on page unmount
+  useEffect(() => {
+    return () => {
+      ringtone.stop();
+    };
+  }, []);
 
   // Handler: Join Queue via QR scan
   const handleQRScanSuccess = async (qrToken: string) => {
@@ -521,6 +514,7 @@ export function QueuePage({ auth, onUpdateDriver, onNavigateToEarnings }: QueueP
   // Handler: Accept Trip Offer
   const handleAcceptTrip = async () => {
     if (!tripOffer || !auth.token) return;
+    ringtone.stop();
     setActionLoading(true);
     try {
       const res = await api.post<{ success: boolean; data: any }>(
@@ -553,6 +547,7 @@ export function QueuePage({ auth, onUpdateDriver, onNavigateToEarnings }: QueueP
   // Handler: Decline Trip Offer
   const handleDeclineTrip = async () => {
     if (!tripOffer || !auth.token) return;
+    ringtone.stop();
     try {
       await api.post(`/trips/${tripOffer.bookingId}/decline`, { bookingId: tripOffer.bookingId }, auth.token);
     } catch {}
@@ -844,29 +839,63 @@ export function QueuePage({ auth, onUpdateDriver, onNavigateToEarnings }: QueueP
             <div className="border-b border-white/[0.08] pb-3 space-y-2">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2.5">
-                  <div className="w-9 h-9 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-bold">
+                  <div className="w-10 h-10 rounded-2xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-bold relative">
                     <Car className="w-5 h-5" />
+                    {!isRingtoneMuted && (
+                      <span className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-emerald-400 animate-ping" />
+                    )}
                   </div>
                   <div>
-                    <h3 className="font-extrabold text-white text-base">Incoming Trip Request</h3>
+                    <div className="flex items-center gap-1.5">
+                      <h3 className="font-extrabold text-white text-base">Incoming Trip</h3>
+                      {!isRingtoneMuted ? (
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30 animate-pulse">
+                          🔔 Ringing
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-neutral-800 text-neutral-400 border border-neutral-700">
+                          Muted
+                        </span>
+                      )}
+                    </div>
                     <div className="text-[11px] text-neutral-400 font-mono">
                       {tripOffer.bookingNumber || 'Ride Request'}
                     </div>
                   </div>
                 </div>
 
-                {/* Dynamic countdown badge */}
-                <div
-                  className={`flex items-center gap-1.5 px-3 py-1 rounded-full border font-black text-sm font-mono transition-colors ${
-                    offerCountdown <= 5
-                      ? 'bg-rose-500/25 border-rose-500 text-rose-400 animate-pulse'
-                      : offerCountdown <= 10
-                      ? 'bg-amber-500/20 border-amber-500/40 text-amber-400'
-                      : 'bg-emerald-500/20 border-emerald-500/40 text-emerald-400'
-                  }`}
-                >
-                  <Clock className="w-3.5 h-3.5 animate-spin" style={{ animationDuration: '3s' }} />
-                  <span>{offerCountdown}s</span>
+                <div className="flex items-center gap-1.5">
+                  {/* Mute/Unmute Ringtone button */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const muted = ringtone.toggleMute();
+                      setIsRingtoneMuted(muted);
+                    }}
+                    className={`p-2 rounded-xl border transition-all ${
+                      isRingtoneMuted
+                        ? 'bg-neutral-800 text-neutral-400 border-neutral-700 hover:text-white'
+                        : 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40 hover:bg-emerald-500/30 animate-pulse'
+                    }`}
+                    title={isRingtoneMuted ? 'Turn Sound On' : 'Mute Ringing'}
+                    aria-label={isRingtoneMuted ? 'Turn Sound On' : 'Mute Ringing'}
+                  >
+                    {isRingtoneMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+                  </button>
+
+                  {/* Dynamic countdown badge */}
+                  <div
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border font-black text-sm font-mono transition-colors ${
+                      offerCountdown <= 5
+                        ? 'bg-rose-500/25 border-rose-500 text-rose-400 animate-pulse'
+                        : offerCountdown <= 10
+                        ? 'bg-amber-500/20 border-amber-500/40 text-amber-400'
+                        : 'bg-emerald-500/20 border-emerald-500/40 text-emerald-400'
+                    }`}
+                  >
+                    <Clock className="w-3.5 h-3.5 animate-spin" style={{ animationDuration: '3s' }} />
+                    <span>{offerCountdown}s</span>
+                  </div>
                 </div>
               </div>
 
