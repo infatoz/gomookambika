@@ -16,7 +16,7 @@ router.get('/', optionalAuth, async (req: Request, res: Response) => {
     { 'address.city': { $regex: search, $options: 'i' } },
   ];
 
-  const locations = await Location.find(filter).limit(100).sort({ name: 1 });
+  const locations = await Location.find(filter).limit(100).sort({ createdAt: 1, name: 1 });
   res.json({ success: true, data: locations });
 });
 

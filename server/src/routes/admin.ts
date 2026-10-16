@@ -912,6 +912,17 @@ const DEFAULT_SYSTEM_SETTINGS: Record<string, unknown> = {
   emergencySosContact: '+91 94812 00000',
   lostAndFoundHelpline: '+91 94812 00001',
   nightTravelAdvisory: 'Certified hill-route drivers with 24x7 control room tracking on all ghat and night journeys.',
+
+  // Tax Settings (GST / Legal)
+  taxEnabled: true,
+  taxPercentage: 5,
+  taxName: 'GST (5%)',
+
+  // Platform Fees (Default: Disabled)
+  platformFeeEnabled: false,
+  platformFeeType: 'FIXED',
+  platformFeeAmount: 15,
+  platformFeeName: 'Platform Convenience Fee',
 };
 
 router.get('/settings', async (_req, res) => {
@@ -931,7 +942,7 @@ router.put('/settings', requireRoles(UserRole.SUPER_ADMIN, UserRole.ASSOCIATION_
     throw errors.badRequest('Invalid settings payload');
   }
 
-  const categoryMap: Record<string, 'association' | 'queue' | 'dispatch' | 'safety'> = {
+  const categoryMap: Record<string, 'association' | 'queue' | 'dispatch' | 'safety' | 'tax' | 'pricing'> = {
     platformName: 'association',
     registrationNumber: 'association',
     supportPhone: 'association',
@@ -954,6 +965,13 @@ router.put('/settings', requireRoles(UserRole.SUPER_ADMIN, UserRole.ASSOCIATION_
     emergencySosContact: 'safety',
     lostAndFoundHelpline: 'safety',
     nightTravelAdvisory: 'safety',
+    taxEnabled: 'tax',
+    taxPercentage: 'tax',
+    taxName: 'tax',
+    platformFeeEnabled: 'tax',
+    platformFeeType: 'tax',
+    platformFeeAmount: 'tax',
+    platformFeeName: 'tax',
   };
 
   const ops = Object.entries(updates).map(([key, value]) => {
@@ -972,6 +990,14 @@ router.put('/settings', requireRoles(UserRole.SUPER_ADMIN, UserRole.ASSOCIATION_
   for (const doc of dbSettings) {
     merged[doc.key] = doc.value;
   }
+
+  try {
+    const { tryGetIO } = await import('@/sockets');
+    const io = tryGetIO();
+    if (io) {
+      io.emit('settings:updated', merged);
+    }
+  } catch {}
 
   res.json({ success: true, message: 'Settings saved successfully', data: merged });
 });
@@ -1068,6 +1094,7 @@ router.get('/pricing-rules/:id', async (req, res) => {
 
 router.post('/pricing-rules', async (req, res) => {
   const { PricingRule } = await import('@/models/PricingRule');
+  const { VehicleCategory } = await import('@/models/VehicleCategory');
   const {
     name,
     ruleType = 'FIXED',
@@ -1092,9 +1119,73 @@ router.post('/pricing-rules', async (req, res) => {
     extraKmRate,
     description,
     status = 'ACTIVE',
+    vehicleCategoryRules,
   } = req.body;
 
   if (!name?.trim()) throw errors.badRequest('Route or rule name is required');
+
+  // Multi-vehicle category & priority rules mode
+  if (Array.isArray(vehicleCategoryRules) && vehicleCategoryRules.length > 0) {
+    const validCategoryRules = vehicleCategoryRules.filter(
+      (cr: any) => cr && cr.vehicleCategoryId && cr.fixedPrice !== undefined && cr.fixedPrice !== null && cr.fixedPrice !== ''
+    );
+
+    if (validCategoryRules.length === 0) {
+      throw errors.badRequest('Please configure at least one vehicle category with a fixed fare amount');
+    }
+
+    const createdRules = [];
+    for (const catRule of validCategoryRules) {
+      const cat = await VehicleCategory.findById(catRule.vehicleCategoryId).select('name code');
+      const catName = cat ? cat.name : 'Cab';
+      const ruleName = validCategoryRules.length > 1 && !name.includes(catName)
+        ? `${name.trim()} - ${catName}`
+        : name.trim();
+
+      const created = await PricingRule.create({
+        name: ruleName,
+        ruleType: ruleType || 'FIXED',
+        priority: catRule.priority !== undefined && catRule.priority !== '' ? Number(catRule.priority) : (Number(priority) || 50),
+        vehicleCategoryId: catRule.vehicleCategoryId,
+        originLocationId: originLocationId || undefined,
+        destinationLocationId: destinationLocationId || undefined,
+        isBidirectional: isBidirectional !== false,
+        tripType: tripType || undefined,
+        fixedPrice: Number(catRule.fixedPrice),
+        roundTripPrice: catRule.roundTripPrice !== undefined && catRule.roundTripPrice !== '' ? Number(catRule.roundTripPrice) : (roundTripPrice ? Number(roundTripPrice) : undefined),
+        tollIncluded: Boolean(tollIncluded),
+        parkingIncluded: Boolean(parkingIncluded),
+        freeWaitingMinutes: freeWaitingMinutes ? Number(freeWaitingMinutes) : 0,
+        nightChargeMultiplier: nightChargeMultiplier !== undefined && nightChargeMultiplier !== '' ? Number(nightChargeMultiplier) : undefined,
+        estimatedDurationMinutes: estimatedDurationMinutes ? Number(estimatedDurationMinutes) : undefined,
+        tags: Array.isArray(tags) ? tags : undefined,
+        baseFare: baseFare !== undefined && baseFare !== '' ? Number(baseFare) : undefined,
+        minimumKm: minimumKm !== undefined && minimumKm !== '' ? Number(minimumKm) : undefined,
+        ratePerKm: ratePerKm !== undefined && ratePerKm !== '' ? Number(ratePerKm) : undefined,
+        includedKm: catRule.includedKm !== undefined && catRule.includedKm !== '' ? Number(catRule.includedKm) : (includedKm ? Number(includedKm) : undefined),
+        extraKmRate: catRule.extraKmRate !== undefined && catRule.extraKmRate !== '' ? Number(catRule.extraKmRate) : (extraKmRate ? Number(extraKmRate) : undefined),
+        description: description?.trim() || undefined,
+        status: status || 'ACTIVE',
+        createdBy: (req as any).user?.userId,
+      });
+
+      const populated = await PricingRule.findById(created._id)
+        .populate('originLocationId', 'name type address')
+        .populate('destinationLocationId', 'name type address')
+        .populate('vehicleCategoryId', 'name code');
+      createdRules.push(populated);
+    }
+
+    return res.status(201).json({
+      success: true,
+      message: `Created ${createdRules.length} fixed route rules for configured vehicle categories`,
+      data: createdRules[0],
+      count: createdRules.length,
+      rules: createdRules,
+    });
+  }
+
+  // Single rule mode
   if (ruleType === 'FIXED' || ruleType === 'LOCATION_TO_LOCATION') {
     if (fixedPrice === undefined || fixedPrice === null || Number(fixedPrice) < 0) {
       throw errors.badRequest('Fixed price amount is required for fixed fare rules');

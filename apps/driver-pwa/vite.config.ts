@@ -8,6 +8,7 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
+      includeAssets: ['app-icon.png', 'logo.png', 'icon-192.png', 'icon-512.png'],
       manifest: {
         name: 'Go Mookambika Captain',
         short_name: 'Captain',
@@ -20,6 +21,7 @@ export default defineConfig({
         ],
       },
       workbox: {
+        importScripts: ['/sw-push.js'],
         skipWaiting: true,
         clientsClaim: true,
         cleanupOutdatedCaches: true,

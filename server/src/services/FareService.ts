@@ -192,20 +192,38 @@ export class FareService {
       nightMultiplier
     );
 
-    // Subtotal before tax
-    const subtotal =
+    // Dynamic Tax & Platform Fee settings configured by Admin
+    const pricingSettings = await this.getTaxAndPlatformFeeSettings();
+
+    // 1. Subtotal for ride services (base, distance, waiting, toll, parking, night, allowance)
+    const rideSubtotal =
       baseFare +
       distanceFare +
       additionalCharges.waiting +
       additionalCharges.toll +
       additionalCharges.parking +
       additionalCharges.driverAllowance +
-      additionalCharges.serviceFee +
       nightCharge;
 
-    // Tax (GST 5% on ride fare, not configurable per law)
-    const taxRate = await this.getTaxRate(tripType);
-    const tax = Math.round(subtotal * taxRate * 100) / 100;
+    // 2. Platform Fee Calculation (Default: DISABLED / 0)
+    let platformFee = 0;
+    if (pricingSettings.platformFeeEnabled) {
+      if (pricingSettings.platformFeeType === 'PERCENTAGE') {
+        platformFee = Math.round(rideSubtotal * (pricingSettings.platformFeeAmount / 100) * 100) / 100;
+      } else {
+        platformFee = Math.round(pricingSettings.platformFeeAmount * 100) / 100;
+      }
+    }
+
+    // 3. Subtotal including platform fee (if enabled)
+    const subtotal = rideSubtotal + platformFee;
+
+    // 4. Tax (GST / Government levy) calculation
+    let tax = 0;
+    if (pricingSettings.taxEnabled && pricingSettings.taxPercentage > 0) {
+      const taxRate = pricingSettings.taxPercentage / 100;
+      tax = Math.round(subtotal * taxRate * 100) / 100;
+    }
 
     const total = Math.round((subtotal + tax) * 100) / 100;
 
@@ -220,7 +238,14 @@ export class FareService {
       parking: Math.round(additionalCharges.parking * 100) / 100,
       nightCharge: Math.round(nightCharge * 100) / 100,
       driverAllowance: Math.round(additionalCharges.driverAllowance * 100) / 100,
-      serviceFee: Math.round(additionalCharges.serviceFee * 100) / 100,
+      serviceFee: platformFee,
+      platformFee,
+      platformFeeEnabled: pricingSettings.platformFeeEnabled,
+      platformFeeType: pricingSettings.platformFeeType,
+      platformFeeName: pricingSettings.platformFeeName,
+      taxEnabled: pricingSettings.taxEnabled,
+      taxRate: pricingSettings.taxPercentage,
+      taxName: pricingSettings.taxName,
       discount: 0,
       tax: Math.round(tax * 100) / 100,
       total,
@@ -508,11 +533,67 @@ export class FareService {
   }
 
   private async getTaxRate(_tripType: TripType): Promise<number> {
-    const gstCharge = await AdditionalCharge.findOne({ chargeType: ChargeType.GST, status: 'ACTIVE' });
-    if (gstCharge && gstCharge.calculationMethod === CalcMethod.PERCENTAGE) {
-      return gstCharge.value / 100;
+    const settings = await this.getTaxAndPlatformFeeSettings();
+    if (settings.taxEnabled && settings.taxPercentage > 0) {
+      return settings.taxPercentage / 100;
     }
-    return 0.05; // Default 5% GST on taxi services
+    return 0;
+  }
+
+  public async getTaxAndPlatformFeeSettings(): Promise<{
+    taxEnabled: boolean;
+    taxPercentage: number;
+    taxName: string;
+    platformFeeEnabled: boolean;
+    platformFeeType: 'FIXED' | 'PERCENTAGE';
+    platformFeeAmount: number;
+    platformFeeName: string;
+  }> {
+    try {
+      const { SystemSetting } = await import('@/models/SystemSetting');
+      const settings = await SystemSetting.find({
+        key: {
+          $in: [
+            'taxEnabled',
+            'taxPercentage',
+            'taxName',
+            'platformFeeEnabled',
+            'platformFeeType',
+            'platformFeeAmount',
+            'platformFeeName',
+          ],
+        },
+      });
+
+      const map: Record<string, any> = {};
+      for (const s of settings) {
+        map[s.key] = s.value;
+      }
+
+      return {
+        taxEnabled: map.taxEnabled !== undefined ? Boolean(map.taxEnabled) : true,
+        taxPercentage: typeof map.taxPercentage === 'number' ? map.taxPercentage : 5,
+        taxName: typeof map.taxName === 'string' && map.taxName.trim() ? map.taxName.trim() : 'GST (5%)',
+        platformFeeEnabled: Boolean(map.platformFeeEnabled), // Default is DISABLED as required
+        platformFeeType: map.platformFeeType === 'PERCENTAGE' ? 'PERCENTAGE' : 'FIXED',
+        platformFeeAmount: typeof map.platformFeeAmount === 'number' ? map.platformFeeAmount : 15,
+        platformFeeName:
+          typeof map.platformFeeName === 'string' && map.platformFeeName.trim()
+            ? map.platformFeeName.trim()
+            : 'Platform Convenience Fee',
+      };
+    } catch (e) {
+      logger.warn('Failed to fetch tax/fee settings, using defaults', e);
+      return {
+        taxEnabled: true,
+        taxPercentage: 5,
+        taxName: 'GST (5%)',
+        platformFeeEnabled: false,
+        platformFeeType: 'FIXED',
+        platformFeeAmount: 15,
+        platformFeeName: 'Platform Convenience Fee',
+      };
+    }
   }
 }
 

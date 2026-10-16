@@ -6,23 +6,32 @@ import { ConfigProvider, App as AntApp } from 'antd';
 import App from './App';
 import './index.css';
 
-// Service Worker auto-update and immediate controller change reload
+// Service Worker auto-update in production; clean up in development
 if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js', { scope: '/' }).then((reg) => {
-      setInterval(() => {
-        reg.update().catch(() => {});
-      }, 60 * 1000);
-    }).catch(() => {});
-  });
+  if (import.meta.env.PROD) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/sw.js', { scope: '/' }).then((reg) => {
+        setInterval(() => {
+          reg.update().catch(() => {});
+        }, 60 * 1000);
+      }).catch(() => {});
+    });
 
-  let refreshing = false;
-  navigator.serviceWorker.addEventListener('controllerchange', () => {
-    if (!refreshing) {
-      refreshing = true;
-      window.location.reload();
-    }
-  });
+    let refreshing = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (!refreshing) {
+        refreshing = true;
+        window.location.reload();
+      }
+    });
+  } else {
+    // In dev mode, unregister leftover service workers so Vite dev server requests aren't intercepted
+    navigator.serviceWorker.getRegistrations().then((registrations) => {
+      for (const reg of registrations) {
+        reg.unregister().catch(() => {});
+      }
+    }).catch(() => {});
+  }
 }
 
 const queryClient = new QueryClient({

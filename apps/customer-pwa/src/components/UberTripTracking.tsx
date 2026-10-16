@@ -14,9 +14,13 @@ import {
   Car,
   ShieldCheck,
   Calendar,
+  Bell,
+  Copy,
 } from 'lucide-react';
 import QRCode from 'qrcode';
 import { api } from '@/lib/api';
+import { toast } from '@/lib/toast';
+import { setupCustomerPushNotifications, getNotificationPermission } from '@/lib/pushNotifications';
 
 export interface ActiveBookingData {
   _id: string;
@@ -68,6 +72,7 @@ export function UberTripTracking({
 
   // Customer payment choice: only UPI and CASH
   const [customerPaymentMethod, setCustomerPaymentMethod] = useState<'UPI' | 'CASH'>('UPI');
+  const [notificationPermission, setNotificationPermission] = useState<string>(() => getNotificationPermission());
 
   const otpCode = booking.startOTP || '';
   const fareAmount = Math.max(1, Math.round(booking.fareSnapshot?.total || 0));
@@ -146,12 +151,35 @@ export function UberTripTracking({
     setCancelError('');
     try {
       await api.post(`/bookings/${booking._id}/cancel`, {});
+      toast.warning('Booking Cancelled', 'Your ride request has been cancelled.');
       if (onRefresh) onRefresh();
       onClose();
     } catch (e: unknown) {
-      setCancelError(e instanceof Error ? e.message : 'Failed to cancel booking');
+      const msg = e instanceof Error ? e.message : 'Failed to cancel booking';
+      setCancelError(msg);
+      toast.error('Cancellation Failed', msg);
     } finally {
       setCancelling(false);
+    }
+  };
+
+  const handleCopyPin = () => {
+    if (!otpCode) return;
+    try {
+      navigator.clipboard.writeText(otpCode);
+      toast.success('Ride PIN Copied', `PIN ${otpCode} copied to clipboard`);
+    } catch {
+      toast.error('Copy Failed', 'Unable to copy PIN to clipboard');
+    }
+  };
+
+  const handleCopyUpi = () => {
+    if (!driverUpiId) return;
+    try {
+      navigator.clipboard.writeText(driverUpiId);
+      toast.success('UPI ID Copied', `${driverUpiId} copied to clipboard`);
+    } catch {
+      toast.error('Copy Failed', 'Unable to copy UPI ID to clipboard');
     }
   };
 
@@ -344,8 +372,17 @@ export function UberTripTracking({
                       <div className="text-xs text-neutral-300 font-semibold">
                         Exact amount <span className="text-emerald-400 font-mono font-bold">₹{fareAmount}</span> is encoded in QR
                       </div>
-                      <div className="text-[11px] text-neutral-400 font-mono">
-                        Pay to UPI ID: <span className="text-white font-bold">{driverUpiId}</span>
+                      <div className="flex items-center justify-center gap-2 text-[11px] text-neutral-400 font-mono">
+                        <span>Pay to UPI ID: <span className="text-white font-bold">{driverUpiId}</span></span>
+                        <button
+                          type="button"
+                          onClick={handleCopyUpi}
+                          className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-[10px] font-sans flex items-center gap-1 border border-slate-700 transition-all"
+                          title="Copy UPI ID"
+                        >
+                          <Copy className="w-3 h-3" />
+                          <span>Copy</span>
+                        </button>
                       </div>
                     </div>
 
@@ -487,6 +524,18 @@ export function UberTripTracking({
                 </span>
               ))}
             </div>
+            {otpCode && (
+              <div className="pt-1.5">
+                <button
+                  type="button"
+                  onClick={handleCopyPin}
+                  className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-700 text-xs font-semibold transition-all active:scale-95"
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                  <span>Copy Ride PIN</span>
+                </button>
+              </div>
+            )}
           </div>
 
           {/* QR Code Action Card */}
@@ -522,6 +571,36 @@ export function UberTripTracking({
               <span>Show QR</span>
             </button>
           </div>
+        </div>
+      )}
+
+      {/* Push Notification & Sound Chime Permission Prompt */}
+      {notificationPermission === 'default' && (
+        <div className="p-3 rounded-2xl bg-amber-50 border border-amber-200 flex items-center justify-between gap-3 text-xs">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="w-8 h-8 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center shrink-0">
+              <Bell className="w-4 h-4 animate-bounce" />
+            </div>
+            <div className="min-w-0">
+              <p className="font-bold text-neutral-900 text-xs truncate">Enable Ride Chime & Push</p>
+              <p className="text-[11px] text-neutral-600 truncate">Receive sound alerts for driver arrival</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={async () => {
+              const ok = await setupCustomerPushNotifications();
+              setNotificationPermission(ok ? 'granted' : 'denied');
+              if (ok) {
+                toast.success('Alerts Enabled', 'You will receive sound and push notifications for your ride.');
+              } else {
+                toast.warning('Notifications Blocked', 'Please allow notifications in your browser settings.');
+              }
+            }}
+            className="px-3 py-1.5 rounded-xl bg-black hover:bg-neutral-800 text-white font-bold text-xs shrink-0 transition-all active:scale-95 shadow-xs cursor-pointer"
+          >
+            Enable
+          </button>
         </div>
       )}
 

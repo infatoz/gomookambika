@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { X, ArrowLeft, Loader2, ShieldCheck } from 'lucide-react';
 import { api } from '@/lib/api';
+import { toast } from '@/lib/toast';
 import { AppLogo } from './AppLogo';
 
 interface UberLoginModalProps {
@@ -36,16 +37,21 @@ export function UberLoginModal({
     const targetPhone = customPhone || phone;
     const phoneNum = `+91${targetPhone}`;
     if (!/^\+91[6-9]\d{9}$/.test(phoneNum)) {
-      setError('Enter a valid 10-digit mobile number');
+      const msg = 'Enter a valid 10-digit mobile number';
+      setError(msg);
+      toast.warning('Invalid Number', msg);
       return;
     }
     setError('');
     setLoading(true);
     try {
       await api.post('/auth/otp/request', { phone: phoneNum, purpose: 'LOGIN' });
+      toast.success('OTP Sent', `Verification code sent to +91 ${targetPhone}`);
       setStep('otp');
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Failed to send OTP. Please try again.');
+      const msg = e instanceof Error ? e.message : 'Failed to send OTP. Please try again.';
+      setError(msg);
+      toast.error('Could Not Send OTP', msg);
     } finally {
       setLoading(false);
     }
@@ -54,7 +60,9 @@ export function UberLoginModal({
   const handleVerifyOTP = async (customOtp?: string) => {
     const targetOtp = customOtp || otp;
     if (targetOtp.length !== 6) {
-      setError('Enter 6-digit OTP');
+      const msg = 'Enter 6-digit OTP';
+      setError(msg);
+      toast.warning('Incomplete Code', 'Please enter all 6 digits of the code');
       return;
     }
     const phoneNum = `+91${phone}`;
@@ -71,11 +79,14 @@ export function UberLoginModal({
       const token = res.data?.tokens?.accessToken;
       const user = res.data?.user || { phone: phoneNum, name: 'Customer' };
       if (token) {
+        toast.success(`Welcome back, ${user.name || 'Customer'}!`, 'Logged in successfully.');
         onLoginSuccess(token, user);
         onClose();
       }
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Invalid OTP. Please check and try again.');
+      const msg = e instanceof Error ? e.message : 'Invalid OTP. Please check and try again.';
+      setError(msg);
+      toast.error('Verification Failed', msg);
     } finally {
       setLoading(false);
     }

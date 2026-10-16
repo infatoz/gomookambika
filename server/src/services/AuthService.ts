@@ -5,6 +5,7 @@ import { getRedis, redisKeys } from '@/config/redis';
 import { User } from '@/models/User';
 import { OTPRecord } from '@/models/OTPRecord';
 import { Driver } from '@/models/Driver';
+import { Vehicle } from '@/models/Vehicle';
 import {
   generateAccessToken,
   generateRefreshToken,
@@ -46,8 +47,43 @@ export class AuthService {
 
   // ─── OTP ─────────────────────────────────────────────────────
 
-  async requestOTP(phone: string, purpose: OTPPurpose, ipAddress: string): Promise<void> {
+  async requestOTP(phone: string, purpose: OTPPurpose, ipAddress: string, role?: string): Promise<void> {
     const normalizedPhone = normalizePhone(phone);
+    const rawDigits = phone.replace(/\D/g, '').slice(-10);
+
+    // Requirement: Only the driver who assigned the vehicle can log into captain/driver app
+    if (role === 'DRIVER') {
+      const driver = await Driver.findOne({
+        $or: [
+          { phone: normalizedPhone },
+          { phone },
+          { phone: rawDigits },
+          { phone: `+91${rawDigits}` },
+        ],
+      });
+
+      if (!driver) {
+        throw errors.forbidden(
+          'This mobile number is not registered as an authorized captain. Please contact the association administrator.',
+          'DRIVER_NOT_REGISTERED'
+        );
+      }
+
+      const vehicle = await Vehicle.findOne({
+        $or: [
+          { assignedDriverId: driver._id },
+          { assignedDriverId: driver.userId },
+        ],
+      });
+
+      if (!vehicle) {
+        throw errors.forbidden(
+          'No vehicle is currently assigned to your captain account. Only drivers with an assigned vehicle can log in. Please contact the association administrator to assign a vehicle.',
+          'NO_VEHICLE_ASSIGNED'
+        );
+      }
+    }
+
     const redis = getRedis();
 
     // Check resend cooldown (Redis-backed, skipped if Redis unavailable)
@@ -183,6 +219,30 @@ export class AuthService {
       ],
     });
 
+    // Requirement: Only the driver who assigned the vehicle can log into captain/driver app
+    if (requestedRole === 'DRIVER') {
+      if (!driver) {
+        throw errors.forbidden(
+          'This mobile number is not registered as an authorized captain. Please contact the association administrator.',
+          'DRIVER_NOT_REGISTERED'
+        );
+      }
+
+      const assignedVehicle = await Vehicle.findOne({
+        $or: [
+          { assignedDriverId: driver._id },
+          { assignedDriverId: driver.userId },
+        ],
+      });
+
+      if (!assignedVehicle) {
+        throw errors.forbidden(
+          'No vehicle is currently assigned to your captain account. Only drivers with an assigned vehicle can log in. Please contact the association administrator to assign a vehicle.',
+          'NO_VEHICLE_ASSIGNED'
+        );
+      }
+    }
+
     if (driver) {
       if (user) {
         // Ensure user has DRIVER role if not admin/super-admin
@@ -211,43 +271,6 @@ export class AuthService {
         }
         await driver.save();
       }
-    } else if (requestedRole === 'DRIVER' || rawDigits === '9876543210' || rawDigits === '9876543211') {
-      // Auto-provision demo driver if logging in via driver partner app
-      if (!user) {
-        user = await User.create({
-          phone: normalizedPhone,
-          name: `Driver Partner ${rawDigits.slice(-4)}`,
-          role: UserRole.DRIVER,
-          permissions: [],
-          status: UserStatus.ACTIVE,
-        });
-      } else if (user.role !== UserRole.DRIVER && user.role !== UserRole.SUPER_ADMIN && user.role !== UserRole.ASSOCIATION_ADMIN) {
-        user.role = UserRole.DRIVER;
-        await user.save();
-      }
-
-      const driverCode = `DRV-${rawDigits.slice(-4)}`;
-      driver = await Driver.create({
-        userId: user._id,
-        driverCode,
-        name: user.name || `Driver Partner ${rawDigits.slice(-4)}`,
-        phone: normalizedPhone,
-        licenseNumber: `KA20 2022${rawDigits.slice(-5)}`,
-        joiningDate: new Date(),
-        status: DriverStatus.AVAILABLE,
-        rating: 4.9,
-        ratingCount: 50,
-        totalTrips: 120,
-        totalEarnings: 35000,
-        address: {
-          line1: 'Temple Road',
-          city: 'Kollur',
-          state: 'Karnataka',
-          country: 'India',
-        },
-        documents: [],
-      });
-      logger.info(`Auto-provisioned demo driver for ${normalizedPhone} (${driverCode})`);
     }
 
     if (!user) {

@@ -5,8 +5,42 @@ import { TripPage } from './pages/TripPage';
 import { EarningsPage } from './pages/EarningsPage';
 import { DriverProfilePage } from './pages/DriverProfilePage';
 import { Navigation, ClipboardList, Wallet, User } from 'lucide-react';
+import { api } from '@/lib/api';
+import { toast } from '@/lib/toast';
+import { ToastContainer } from './components/ToastContainer';
 
 type Page = 'queue' | 'trips' | 'earnings' | 'profile';
+
+export interface DriverVehicleInfo {
+  _id?: string;
+  registrationNumber?: string;
+  brand?: string;
+  vehicleModel?: string;
+  variant?: string;
+  color?: string;
+  fuelType?: string;
+  seatCapacity?: number;
+  luggageCapacity?: number;
+  ac?: boolean;
+  manufacturingYear?: number;
+  ownerName?: string;
+  ownerPhone?: string;
+  status?: string;
+  categoryId?: {
+    _id?: string;
+    name?: string;
+    code?: string;
+    maxSeats?: number;
+    maxLuggage?: number;
+    image?: string;
+  } | string;
+  documents?: Array<{
+    type: string;
+    fileUrl: string;
+    expiresAt?: string;
+    verified?: boolean;
+  }>;
+}
 
 export interface DriverInfo {
   _id: string;
@@ -14,13 +48,10 @@ export interface DriverInfo {
   phone: string;
   status: string;
   driverCode: string;
+  rating?: number;
   upiId?: string;
   upiBeneficiaryName?: string;
-  vehicle?: {
-    registrationNumber?: string;
-    brand?: string;
-    vehicleModel?: string;
-  };
+  vehicle?: DriverVehicleInfo;
 }
 
 export interface AuthState {
@@ -34,6 +65,7 @@ function App() {
     token: localStorage.getItem('gm_driver_token'),
     driver: localStorage.getItem('gm_driver') ? JSON.parse(localStorage.getItem('gm_driver')!) : null,
   }));
+  const [authError, setAuthError] = useState<string | null>(null);
 
   useEffect(() => {
     if (auth.token) localStorage.setItem('gm_driver_token', auth.token);
@@ -41,6 +73,38 @@ function App() {
       localStorage.removeItem('gm_driver_token');
       localStorage.removeItem('gm_driver');
     }
+  }, [auth.token]);
+
+  // Requirement: Only the driver who assigned the vehicle can log in / stay logged in
+  useEffect(() => {
+    if (!auth.token) return;
+
+    api
+      .get<{ data: DriverInfo }>('/drivers/me', auth.token)
+      .then(res => {
+        if (!res.data?.vehicle) {
+          setAuth({ token: null, driver: null });
+          localStorage.removeItem('gm_driver_token');
+          localStorage.removeItem('gm_driver');
+          const errMsg = 'No vehicle is currently assigned to your captain account. Only drivers with an assigned vehicle can log in. Please contact the association administrator.';
+          setAuthError(errMsg);
+          toast.error('Vehicle Not Assigned', errMsg);
+        } else {
+          setAuth(prev => {
+            const merged = { ...prev.driver, ...res.data };
+            localStorage.setItem('gm_driver', JSON.stringify(merged));
+            return { ...prev, driver: merged };
+          });
+        }
+      })
+      .catch((err: any) => {
+        setAuth({ token: null, driver: null });
+        localStorage.removeItem('gm_driver_token');
+        localStorage.removeItem('gm_driver');
+        const errMsg = err?.message || 'Access Denied: No vehicle is assigned to your captain account.';
+        setAuthError(errMsg);
+        toast.error('Access Denied', errMsg);
+      });
   }, [auth.token]);
 
   useEffect(() => {
@@ -54,11 +118,13 @@ function App() {
 
   const handleLogin = useCallback((token: string, driver: AuthState['driver']) => {
     setAuth({ token, driver });
+    setAuthError(null);
     if (driver) localStorage.setItem('gm_driver', JSON.stringify(driver));
   }, []);
 
   const handleLogout = useCallback(() => {
     setAuth({ token: null, driver: null });
+    setAuthError(null);
     setPage('queue');
   }, []);
 
@@ -72,7 +138,12 @@ function App() {
   }, []);
 
   if (!auth.token) {
-    return <OTPLoginPage onLogin={handleLogin} />;
+    return (
+      <>
+        <ToastContainer />
+        <OTPLoginPage onLogin={handleLogin} initialError={authError} />
+      </>
+    );
   }
 
   const tabs: { id: Page; label: string; icon: typeof Navigation }[] = [
@@ -84,6 +155,7 @@ function App() {
 
   return (
     <div className="min-h-screen bg-black text-white flex flex-col justify-between selection:bg-emerald-500 selection:text-black font-sans antialiased">
+      <ToastContainer />
       {/* Mobile-constrained app shell */}
       <main className="w-full max-w-md mx-auto flex-1 pb-24 relative overflow-x-hidden">
         {page === 'queue' && (

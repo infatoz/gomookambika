@@ -34,7 +34,13 @@ export interface FareEstimateData {
   baseFare: number;
   distanceFare: number;
   distanceKm: number;
+  platformFee?: number;
+  serviceFee?: number;
+  platformFeeEnabled?: boolean;
+  platformFeeName?: string;
   tax?: number;
+  taxName?: string;
+  taxRate?: number;
   nightCharge?: number;
   waitingCharge?: number;
   currency: string;
@@ -245,9 +251,16 @@ export function UberRideSelector({
                 <span>₹{Math.round(currentEstimate.distanceFare)}</span>
               </div>
             )}
+            {typeof (currentEstimate.platformFee ?? currentEstimate.serviceFee) === 'number' &&
+              ((currentEstimate.platformFee ?? currentEstimate.serviceFee)! > 0) && (
+              <div className="flex items-center justify-between text-neutral-600 text-[11px]">
+                <span>{currentEstimate.platformFeeName || 'Platform Convenience Fee'}</span>
+                <span>₹{Math.round((currentEstimate.platformFee ?? currentEstimate.serviceFee)!)}</span>
+              </div>
+            )}
             {typeof currentEstimate.tax === 'number' && currentEstimate.tax > 0 && (
               <div className="flex items-center justify-between text-neutral-500 text-[11px]">
-                <span>GST & RTO charges (5%)</span>
+                <span>{currentEstimate.taxName || 'GST & Taxes'}</span>
                 <span>₹{Math.round(currentEstimate.tax)}</span>
               </div>
             )}

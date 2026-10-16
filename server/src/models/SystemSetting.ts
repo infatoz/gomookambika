@@ -3,7 +3,7 @@ import { Schema, model, Document } from 'mongoose';
 export interface ISystemSetting extends Document {
   key: string;
   value: unknown;
-  category: 'association' | 'queue' | 'dispatch' | 'safety';
+  category: 'association' | 'queue' | 'dispatch' | 'safety' | 'tax' | 'pricing';
   description?: string;
   updatedBy?: string;
   createdAt: Date;
@@ -26,7 +26,7 @@ const systemSettingSchema = new Schema<ISystemSetting>(
     category: {
       type: String,
       required: true,
-      enum: ['association', 'queue', 'dispatch', 'safety'],
+      enum: ['association', 'queue', 'dispatch', 'safety', 'tax', 'pricing'],
       index: true,
     },
     description: {

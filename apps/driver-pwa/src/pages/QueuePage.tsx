@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import QRCode from 'qrcode';
 import { api } from '@/lib/api';
+import { toast } from '@/lib/toast';
 import { QRScannerModal } from '@/components/QRScannerModal';
 import { ringtone } from '@/lib/ringtone';
 import { io, Socket } from 'socket.io-client';
@@ -32,7 +33,13 @@ import {
   ShieldAlert,
   Volume2,
   VolumeX,
+  Bell,
 } from 'lucide-react';
+import {
+  setupDriverPushNotifications,
+  showDriverLocalNotification,
+  getNotificationPermission,
+} from '@/lib/pushNotifications';
 
 interface AuthState {
   token: string | null;
@@ -83,6 +90,8 @@ interface TripOffer {
   timeoutSeconds?: number;
   expiresIn?: number;
   scheduledAt?: string;
+  customerName?: string;
+  customerPhone?: string;
 }
 
 interface ActiveTrip {
@@ -96,6 +105,58 @@ interface ActiveTrip {
   customerName?: string;
   customerPhone?: string;
   paymentMethod?: 'CASH' | 'UPI';
+}
+
+function parseActiveTrip(raw: any, fallback?: Partial<ActiveTrip>): ActiveTrip | null {
+  const t = raw?.data?.data || raw?.data || raw;
+  if (!t || typeof t !== 'object') return null;
+
+  const booking = t.bookingId && typeof t.bookingId === 'object' ? t.bookingId : null;
+  const customer = t.customerId && typeof t.customerId === 'object' ? t.customerId : null;
+
+  const id = t._id || t.id || fallback?._id || '';
+  const bookingId = booking?._id || (typeof t.bookingId === 'string' ? t.bookingId : '') || fallback?.bookingId || '';
+  const bookingNumber = booking?.bookingNumber || t.bookingNumber || fallback?.bookingNumber || 'GM-TRIP';
+  const fare =
+    t.finalFare?.total ||
+    booking?.fareSnapshot?.total ||
+    t.estimatedFare ||
+    t.fare ||
+    fallback?.fare ||
+    0;
+  const customerName =
+    customer?.name ||
+    t.customerName ||
+    fallback?.customerName ||
+    'Passenger';
+  const customerPhone =
+    customer?.phone ||
+    t.customerPhone ||
+    fallback?.customerPhone;
+  const pickupAddress =
+    t.pickupLocation?.address ||
+    booking?.pickupLocation?.address ||
+    t.pickupAddress ||
+    fallback?.pickupAddress ||
+    'Pickup Point';
+  const dropAddress =
+    t.dropLocation?.address ||
+    booking?.dropLocation?.address ||
+    t.dropAddress ||
+    fallback?.dropAddress;
+
+  return {
+    _id: id,
+    bookingId,
+    bookingNumber,
+    status: t.status || fallback?.status || 'DRIVER_ACCEPTED',
+    pickupAddress,
+    dropAddress,
+    fare,
+    customerName,
+    customerPhone,
+    paymentMethod: t.paymentMethod || fallback?.paymentMethod,
+  };
 }
 
 export function QueuePage({ auth, onUpdateDriver, onNavigateToEarnings }: QueuePageProps) {
@@ -113,6 +174,42 @@ export function QueuePage({ auth, onUpdateDriver, onNavigateToEarnings }: QueueP
   const [todayEarnings, setTodayEarnings] = useState<number>(0);
   const [isSocketConnected, setIsSocketConnected] = useState(false);
   const [isRingtoneMuted, setIsRingtoneMuted] = useState(false);
+  const [notificationPermission, setNotificationPermission] = useState<string>(() => getNotificationPermission());
+
+  // Setup Web Push Notification subscription on driver login
+  useEffect(() => {
+    if (auth.token && auth.driver?._id) {
+      setupDriverPushNotifications(auth.driver._id).then((granted) => {
+        if (granted) setNotificationPermission('granted');
+      });
+    }
+  }, [auth.token, auth.driver?._id]);
+
+  // Handle URL autoAccept action (e.g. from background push notification click)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const autoAcceptId = params.get('autoAccept');
+    if (autoAcceptId && auth.token) {
+      ringtone.stop();
+      api
+        .post<{ success: boolean; data: any }>(
+          `/trips/${autoAcceptId}/accept`,
+          { bookingId: autoAcceptId },
+          auth.token
+        )
+        .then((res) => {
+          const trip = parseActiveTrip(res, {
+            bookingId: autoAcceptId,
+            status: 'DRIVER_ACCEPTED',
+          });
+          if (trip) setActiveTrip(trip);
+          setTripOffer(null);
+          setStatus('ON_TRIP');
+        })
+        .catch(() => {});
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+  }, [auth.token]);
 
   // ─── PAYMENT STATES ───────────────────────────────────────
   const [paymentMode, setPaymentMode] = useState<'UPI' | 'CASH'>('UPI');
@@ -180,7 +277,9 @@ export function QueuePage({ auth, onUpdateDriver, onNavigateToEarnings }: QueueP
   const handleSaveQuickUpi = async () => {
     const cleanId = quickUpiInput.trim();
     if (!cleanId || !cleanId.includes('@')) {
-      setError('Please enter a valid UPI ID (e.g. mobile@upi, name@okhdfcbank)');
+      const msg = 'Please enter a valid UPI ID (e.g. mobile@upi, name@okhdfcbank)';
+      setError(msg);
+      toast.warning('Invalid UPI Format', msg);
       return;
     }
     setSavingQuickUpi(true);
@@ -189,8 +288,11 @@ export function QueuePage({ auth, onUpdateDriver, onNavigateToEarnings }: QueueP
       onUpdateDriver?.({ upiId: cleanId });
       setIsEditingUpi(false);
       setError('');
+      toast.success('UPI ID Updated', `Driver payment QR code updated with ${cleanId}`);
     } catch (err: any) {
-      setError(err?.message || 'Failed to update UPI ID');
+      const msg = err?.message || 'Failed to update UPI ID';
+      setError(msg);
+      toast.error('Update Failed', msg);
     } finally {
       setSavingQuickUpi(false);
     }
@@ -202,18 +304,20 @@ export function QueuePage({ auth, onUpdateDriver, onNavigateToEarnings }: QueueP
     try {
       await api.post(
         `/trips/${activeTrip._id}/complete`,
-        { paymentMethod: mode, amountPaid: activeTrip.fare },
+        { paymentMethod: mode, amountPaid: activeTrip.fare, bookingId: activeTrip.bookingId },
         auth.token
       );
       setPaymentMode(mode);
       setPaymentStep('COMPLETED');
       setActiveTrip(prev => (prev ? { ...prev, status: 'TRIP_COMPLETED', paymentMethod: mode } : null));
       fetchTodayEarnings();
+      toast.success('Trip Completed!', `Payment of ₹${Math.round(activeTrip.fare)} settled via ${mode}.`);
     } catch {
       setPaymentMode(mode);
       setPaymentStep('COMPLETED');
       setActiveTrip(prev => (prev ? { ...prev, status: 'TRIP_COMPLETED', paymentMethod: mode } : null));
       fetchTodayEarnings();
+      toast.success('Trip Completed!', `Marked as finished via ${mode}.`);
     } finally {
       setActionLoading(false);
     }
@@ -303,11 +407,21 @@ export function QueuePage({ auth, onUpdateDriver, onNavigateToEarnings }: QueueP
         expiresIn: dynamicTimeout,
         timeoutSeconds: dynamicTimeout,
         scheduledAt: payload.scheduledAt,
+        customerName: payload.customerName || 'Passenger',
+        customerPhone: payload.customerPhone,
       });
 
       // Start continuous phone ringing alert & vibration
       setIsRingtoneMuted(false);
       ringtone.start();
+
+      // Trigger high-priority native browser notification with action buttons
+      showDriverLocalNotification({
+        bookingId: payload.bookingId,
+        pickupAddress: payload.pickupLocation?.address || payload.pickupAddress,
+        dropAddress: payload.dropLocation?.address || payload.dropAddress,
+        estimatedFare: payload.estimatedFare || 0,
+      });
     };
 
     const handleTripOfferTimeout = () => {
@@ -329,6 +443,46 @@ export function QueuePage({ auth, onUpdateDriver, onNavigateToEarnings }: QueueP
       }
     });
 
+    // Listen for background service worker push notification interactions
+    const handleSwMessage = (e: MessageEvent) => {
+      if (e.data?.type === 'PUSH_NOTIFICATION_RECEIVED') {
+        const payload = e.data.payload?.data;
+        if (payload?.type === 'TRIP_OFFER' && payload.bookingId) {
+          setIsRingtoneMuted(false);
+          ringtone.start();
+        }
+      } else if (e.data?.type === 'NOTIFICATION_ACTION_CLICKED') {
+        const { action, data } = e.data;
+        if (action === 'accept' && data?.bookingId && auth.token) {
+          ringtone.stop();
+          api
+            .post<{ success: boolean; data: any }>(
+              `/trips/${data.bookingId}/accept`,
+              { bookingId: data.bookingId },
+              auth.token
+            )
+            .then((res) => {
+              const trip = parseActiveTrip(res, {
+                bookingId: data.bookingId,
+                bookingNumber: data.bookingNumber,
+                pickupAddress: data.pickup,
+                dropAddress: data.drop,
+                fare: data.estimatedFare,
+                status: 'DRIVER_ACCEPTED',
+              });
+              if (trip) setActiveTrip(trip);
+              setTripOffer(null);
+              setStatus('ON_TRIP');
+            })
+            .catch(() => {});
+        }
+      }
+    };
+
+    if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
+      navigator.serviceWorker.addEventListener('message', handleSwMessage);
+    }
+
     return () => {
       socket.off('connect');
       socket.off('disconnect');
@@ -340,6 +494,9 @@ export function QueuePage({ auth, onUpdateDriver, onNavigateToEarnings }: QueueP
       socket.off('trip:status:changed');
       if (socket.connected) {
         socket.disconnect();
+      }
+      if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
+        navigator.serviceWorker.removeEventListener('message', handleSwMessage);
       }
     };
   }, [auth.token, fetchTodayEarnings]);
@@ -369,19 +526,11 @@ export function QueuePage({ auth, onUpdateDriver, onNavigateToEarnings }: QueueP
 
       // Restore active trip if driver is currently assigned/on a trip
       if (res.data?.activeTrip) {
-        const at = res.data.activeTrip;
-        setActiveTrip({
-          _id: at._id,
-          bookingId: at.bookingId?._id || at.bookingId,
-          bookingNumber: at.bookingNumber || at.bookingId?.bookingNumber || 'GM-TRIP',
-          status: at.status,
-          pickupAddress: at.pickupLocation?.address || at.pickupAddress || 'Pickup Point',
-          dropAddress: at.dropLocation?.address || at.dropAddress,
-          fare: at.finalFare?.total || at.estimatedFare || at.fare || 0,
-          customerName: at.customerId?.name || at.customerName || 'Passenger',
-          customerPhone: at.customerId?.phone || at.customerPhone,
-        });
-        setStatus('ON_TRIP');
+        const trip = parseActiveTrip(res.data.activeTrip);
+        if (trip) {
+          setActiveTrip(trip);
+          setStatus('ON_TRIP');
+        }
       }
     } catch (e: any) {
       if (e?.message?.includes('unauthorized') || e?.message?.includes('401')) {
@@ -441,9 +590,13 @@ export function QueuePage({ auth, onUpdateDriver, onNavigateToEarnings }: QueueP
     };
   }, [tripOffer]);
 
-  // Stop phone ringtone when trip offer is cleared
+  // Stop phone ringtone when active trip offer is cleared
+  const hadTripOfferRef = useRef(false);
   useEffect(() => {
-    if (!tripOffer) {
+    if (tripOffer) {
+      hadTripOfferRef.current = true;
+    } else if (hadTripOfferRef.current) {
+      hadTripOfferRef.current = false;
       ringtone.stop();
     }
   }, [tripOffer]);
@@ -451,7 +604,10 @@ export function QueuePage({ auth, onUpdateDriver, onNavigateToEarnings }: QueueP
   // Cleanup ringtone audio context and vibration on page unmount
   useEffect(() => {
     return () => {
-      ringtone.stop();
+      if (hadTripOfferRef.current) {
+        hadTripOfferRef.current = false;
+        ringtone.stop();
+      }
     };
   }, []);
 
@@ -480,20 +636,24 @@ export function QueuePage({ auth, onUpdateDriver, onNavigateToEarnings }: QueueP
         auth.token
       );
 
+      const pos = res.data?.position || res.data?.data?.position || 1;
       setQueueEntry({
         _id: res.data?.queueEntryId || res.data?.data?._id || 'entry_1',
         taxiStandId: { name: res.data?.taxiStandName || 'Kollur Mookambika Stand' },
-        position: res.data?.position || res.data?.data?.position || 1,
+        position: pos,
         enteredAt: new Date().toISOString(),
       });
       setStatus('AVAILABLE');
       setQrModalOpen(false);
+      toast.success('Joined Stand Queue!', `You are at position #${pos} in the queue.`);
     } catch (e: any) {
       if (e?.message?.toLowerCase()?.includes('active trip')) {
         await checkMyStatus();
         setQrModalOpen(false);
       }
-      setError(e?.message || 'Failed to join taxi stand queue');
+      const msg = e?.message || 'Failed to join taxi stand queue';
+      setError(msg);
+      toast.error('Queue Join Failed', msg);
     } finally {
       setActionLoading(false);
     }
@@ -509,6 +669,7 @@ export function QueuePage({ auth, onUpdateDriver, onNavigateToEarnings }: QueueP
     setQueueEntry(null);
     setStatus('OFFLINE');
     setActionLoading(false);
+    toast.warning('Exited Queue', 'You are now offline and will not receive ride dispatches.');
   };
 
   // Handler: Accept Trip Offer
@@ -523,22 +684,25 @@ export function QueuePage({ auth, onUpdateDriver, onNavigateToEarnings }: QueueP
         auth.token
       );
 
-      const tripData = res.data?.data;
-      setActiveTrip({
-        _id: tripData?._id || tripOffer.bookingId,
+      const trip = parseActiveTrip(res, {
         bookingId: tripOffer.bookingId,
-        bookingNumber: tripOffer.bookingNumber || 'GM-TRIP',
-        status: 'DRIVER_ACCEPTED',
-        pickupAddress: tripOffer.pickupAddress || 'Pickup Point',
+        bookingNumber: tripOffer.bookingNumber,
+        pickupAddress: tripOffer.pickupAddress,
         dropAddress: tripOffer.dropAddress,
         fare: tripOffer.estimatedFare,
-        customerName: 'Passenger',
+        customerName: tripOffer.customerName,
+        customerPhone: tripOffer.customerPhone,
+        status: 'DRIVER_ACCEPTED',
       });
 
+      if (trip) setActiveTrip(trip);
       setTripOffer(null);
       setStatus('ON_TRIP');
+      toast.success('Trip Accepted!', 'Proceed to passenger pickup point.');
     } catch (e: any) {
-      setError(e?.message || 'Failed to accept trip offer');
+      const msg = e?.message || 'Failed to accept trip offer';
+      setError(msg);
+      toast.error('Accept Failed', msg);
     } finally {
       setActionLoading(false);
     }
@@ -552,6 +716,7 @@ export function QueuePage({ auth, onUpdateDriver, onNavigateToEarnings }: QueueP
       await api.post(`/trips/${tripOffer.bookingId}/decline`, { bookingId: tripOffer.bookingId }, auth.token);
     } catch {}
     setTripOffer(null);
+    toast.info('Trip Offer Declined', 'You remain in the taxi queue.');
   };
 
   // Handler: Driver Arrived at Pickup
@@ -559,10 +724,18 @@ export function QueuePage({ auth, onUpdateDriver, onNavigateToEarnings }: QueueP
     if (!activeTrip || !auth.token) return;
     setActionLoading(true);
     try {
-      await api.post(`/trips/${activeTrip._id}/arrived`, {}, auth.token);
-      setActiveTrip(prev => (prev ? { ...prev, status: 'DRIVER_ARRIVED' } : null));
+      const res = await api.post<{ success: boolean; data: any }>(
+        `/trips/${activeTrip._id}/arrived`,
+        { bookingId: activeTrip.bookingId },
+        auth.token
+      );
+      const updated = parseActiveTrip(res, activeTrip);
+      setActiveTrip(prev => (updated ? { ...prev, ...updated, status: 'DRIVER_ARRIVED' } : (prev ? { ...prev, status: 'DRIVER_ARRIVED' } : null)));
+      toast.info('Arrived at Pickup', 'Passenger has been notified of your arrival.');
     } catch (e: any) {
-      setError(e?.message || 'Failed to update arrival status');
+      const msg = e?.message || 'Failed to update arrival status';
+      setError(msg);
+      toast.error('Update Failed', msg);
     } finally {
       setActionLoading(false);
     }
@@ -573,22 +746,37 @@ export function QueuePage({ auth, onUpdateDriver, onNavigateToEarnings }: QueueP
     if (!activeTrip || !auth.token) return;
     const effectiveOtp = (customOtp || otpInput).trim();
     if (effectiveOtp.length < 4) {
-      setError('Please enter the 6-digit Ride PIN or scan passenger QR code');
+      const msg = 'Please enter the 6-digit Ride PIN or scan passenger QR code';
+      setError(msg);
+      toast.warning('PIN Required', msg);
       return;
     }
     setActionLoading(true);
     setError('');
     try {
-      await api.post(
+      const res = await api.post<{ success: boolean; data: any }>(
         `/trips/${activeTrip._id}/start`,
-        { otp: effectiveOtp },
+        { otp: effectiveOtp, bookingId: activeTrip.bookingId },
         auth.token
       );
-      setActiveTrip(prev => (prev ? { ...prev, status: 'TRIP_STARTED' } : null));
+      const updated = parseActiveTrip(res, activeTrip);
+      setActiveTrip(prev => {
+        if (!prev) return null;
+        const validFare = (updated?.fare && updated.fare > 0) ? updated.fare : prev.fare;
+        return {
+          ...prev,
+          ...(updated || {}),
+          status: 'TRIP_STARTED',
+          fare: validFare,
+        };
+      });
       setOtpInput('');
       setCustomerQrModalOpen(false);
+      toast.success('Trip Started!', 'PIN verified. Have a safe journey to destination.');
     } catch (e: any) {
-      setError(e?.message || 'Invalid trip PIN. Please check passenger phone or scan QR code.');
+      const msg = e?.message || 'Invalid trip PIN. Please check passenger phone or scan QR code.';
+      setError(msg);
+      toast.error('Start Trip Failed', msg);
     } finally {
       setActionLoading(false);
     }
@@ -703,6 +891,30 @@ export function QueuePage({ auth, onUpdateDriver, onNavigateToEarnings }: QueueP
           <span>{isSocketConnected ? 'Connected' : 'Connecting...'}</span>
         </div>
       </div>
+
+      {/* Push Notification & Ringtone Enable Banner (when not yet enabled) */}
+      {notificationPermission === 'default' && (
+        <div className="p-3 rounded-2xl bg-gradient-to-r from-amber-500/15 via-amber-500/10 to-transparent border border-amber-500/30 flex items-center justify-between gap-3 text-xs">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="w-8 h-8 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center shrink-0">
+              <Bell className="w-4 h-4 animate-bounce" />
+            </div>
+            <div className="min-w-0">
+              <p className="font-bold text-white text-xs truncate">Enable Trip Ringtone & Push</p>
+              <p className="text-[10px] text-neutral-400 truncate">Receive sound alerts for passenger rides</p>
+            </div>
+          </div>
+          <button
+            onClick={async () => {
+              const ok = await setupDriverPushNotifications(auth.driver?._id);
+              setNotificationPermission(ok ? 'granted' : 'denied');
+            }}
+            className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-bold text-xs shrink-0 transition-all active:scale-95 shadow-md cursor-pointer"
+          >
+            Enable
+          </button>
+        </div>
+      )}
 
       {error && (
         <div className="flex items-center gap-2 p-3 rounded-xl bg-rose-950/70 border border-rose-800/80 text-rose-300 text-xs animate-shake">

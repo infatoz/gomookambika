@@ -9,6 +9,7 @@ class PhoneRingtoneManager {
   private audioCtx: AudioContext | null = null;
   private isPlaying = false;
   private isMuted = false;
+  private isVibrating = false;
   private timer: any = null;
   private vibrationTimer: any = null;
 
@@ -59,8 +60,11 @@ class PhoneRingtoneManager {
       const doVibrate = () => {
         if (!this.isPlaying) return;
         try {
+          this.isVibrating = true;
           navigator.vibrate([450, 150, 450, 150, 600]);
-        } catch {}
+        } catch {
+          this.isVibrating = false;
+        }
       };
       doVibrate();
       this.vibrationTimer = setInterval(doVibrate, 2200);
@@ -155,10 +159,13 @@ class PhoneRingtoneManager {
       this.vibrationTimer = null;
     }
 
-    if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+    if (this.isVibrating && typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+      this.isVibrating = false;
       try {
         navigator.vibrate(0);
       } catch {}
+    } else {
+      this.isVibrating = false;
     }
 
     if (this.audioCtx && this.audioCtx.state !== 'closed') {

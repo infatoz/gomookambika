@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Calendar, Clock, X, Check, Car, Sparkles, ShieldCheck } from 'lucide-react';
+import { toast } from '@/lib/toast';
 
 interface UberScheduleModalProps {
   isOpen: boolean;
@@ -62,11 +63,13 @@ export function UberScheduleModal({
 
   const handleConfirm = () => {
     onSaveSchedule(date, time);
+    toast.success('Schedule Confirmed', `Trip scheduled for ${date} at ${time}.`);
     onClose();
   };
 
   const handleResetNow = () => {
     onResetToNow();
+    toast.info('Switched to Now', 'Searching cabs for immediate pickup.');
     onClose();
   };
 

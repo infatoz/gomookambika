@@ -1,22 +1,30 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { api } from '@/lib/api';
+import { toast } from '@/lib/toast';
 import { Car, ShieldCheck, ArrowRight, AlertCircle, ArrowLeft } from 'lucide-react';
 import { AppLogo } from '@/components/AppLogo';
 
 interface OTPLoginPageProps {
+  initialError?: string | null;
   onLogin: (
     token: string,
-    driver: { _id: string; name: string; phone: string; status: string; driverCode: string }
+    driver: { _id: string; name: string; phone: string; status: string; driverCode: string; vehicle?: any }
   ) => void;
 }
 
-export function OTPLoginPage({ onLogin }: OTPLoginPageProps) {
+export function OTPLoginPage({ onLogin, initialError }: OTPLoginPageProps) {
   const [phone, setPhone] = useState('');
   const [otp, setOtp] = useState('');
   const [step, setStep] = useState<'phone' | 'otp'>('phone');
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState(initialError || '');
   const [resendCooldown, setResendCooldown] = useState(0);
+
+  useEffect(() => {
+    if (initialError) {
+      setError(initialError);
+    }
+  }, [initialError]);
 
   const cleanPhone = (val: string) => {
     const digits = val.replace(/\D/g, '');
@@ -26,14 +34,18 @@ export function OTPLoginPage({ onLogin }: OTPLoginPageProps) {
   const handleRequestOTP = async () => {
     const raw = cleanPhone(phone);
     if (raw.length !== 10 || !/^[6-9]\d{9}$/.test(raw)) {
-      setError('Please enter a valid 10-digit mobile number');
+      const msg = 'Please enter a valid 10-digit mobile number';
+      setError(msg);
+      toast.warning('Invalid Mobile Number', msg);
       return;
     }
     const phoneNum = `+91${raw}`;
     setError('');
     setLoading(true);
     try {
-      await api.post('/auth/otp/request', { phone: phoneNum, purpose: 'LOGIN' });
+      // Pass role: 'DRIVER' so backend validates driver registration and assigned vehicle
+      await api.post('/auth/otp/request', { phone: phoneNum, purpose: 'LOGIN', role: 'DRIVER' });
+      toast.success('OTP Sent', `Verification code sent to +91 ${raw}`);
       setStep('otp');
       setResendCooldown(30);
       const timer = setInterval(() => {
@@ -46,7 +58,9 @@ export function OTPLoginPage({ onLogin }: OTPLoginPageProps) {
         });
       }, 1000);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Failed to send OTP. Please check your network.');
+      const msg = e instanceof Error ? e.message : 'Failed to send OTP. Please check your network.';
+      setError(msg);
+      toast.error('Could Not Send OTP', msg);
     } finally {
       setLoading(false);
     }
@@ -54,7 +68,9 @@ export function OTPLoginPage({ onLogin }: OTPLoginPageProps) {
 
   const handleVerifyOTP = async () => {
     if (otp.length !== 6) {
-      setError('Enter 6-digit OTP');
+      const msg = 'Enter 6-digit OTP';
+      setError(msg);
+      toast.warning('Incomplete Code', 'Please enter all 6 digits of the OTP');
       return;
     }
     const raw = cleanPhone(phone);
@@ -69,31 +85,42 @@ export function OTPLoginPage({ onLogin }: OTPLoginPageProps) {
       const token = res.data.tokens.accessToken;
       const user = res.data.user;
 
-      let driverProfile = { _id: user._id, name: user.name, phone: user.phone, status: 'AVAILABLE', driverCode: '' };
+      // Verify that an active vehicle is assigned to this driver
       try {
         const dRes = await api.get<{
-          data: { _id: string; name: string; phone: string; status: string; driverCode: string };
+          data: { _id: string; name: string; phone: string; status: string; driverCode: string; vehicle?: any };
         }>('/drivers/me', token);
-        if (dRes && dRes.data) {
-          driverProfile = {
-            _id: dRes.data._id || user._id,
-            name: dRes.data.name || user.name,
-            phone: dRes.data.phone || user.phone,
-            status: dRes.data.status || 'AVAILABLE',
-            driverCode: dRes.data.driverCode || '',
-          };
-        }
-      } catch {
-        if (user.role !== 'DRIVER' && user.role !== 'SUPER_ADMIN' && user.role !== 'ASSOCIATION_ADMIN') {
-          setError('This number is not registered as an authorized captain. Please contact the association admin.');
+
+        if (!dRes?.data?.vehicle) {
+          const msg = 'No vehicle is currently assigned to your captain account. Only drivers with an assigned vehicle can log in. Please contact the association administrator.';
+          setError(msg);
+          toast.error('Vehicle Not Assigned', msg);
           setLoading(false);
           return;
         }
-      }
 
-      onLogin(token, driverProfile);
+        const driverProfile = {
+          _id: dRes.data._id || user._id,
+          name: dRes.data.name || user.name,
+          phone: dRes.data.phone || user.phone,
+          status: dRes.data.status || 'AVAILABLE',
+          driverCode: dRes.data.driverCode || '',
+          vehicle: dRes.data.vehicle,
+        };
+
+        toast.success(`Welcome back, ${driverProfile.name || 'Captain'}!`, 'Logged into driver terminal.');
+        onLogin(token, driverProfile);
+      } catch (err: any) {
+        const msg = err?.message || 'Access Denied: No vehicle is assigned to your captain account. Please contact the association administrator.';
+        setError(msg);
+        toast.error('Access Denied', msg);
+        setLoading(false);
+        return;
+      }
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Invalid OTP. Please check and try again.');
+      const msg = e instanceof Error ? e.message : 'Invalid OTP. Please check and try again.';
+      setError(msg);
+      toast.error('Verification Failed', msg);
     } finally {
       setLoading(false);
     }
@@ -143,9 +170,22 @@ export function OTPLoginPage({ onLogin }: OTPLoginPageProps) {
             </div>
 
             {error && (
-              <div className="flex items-center gap-2 p-3 bg-rose-950/70 border border-rose-800/80 rounded-2xl text-rose-300 text-xs">
-                <AlertCircle className="w-4 h-4 shrink-0" />
-                <span>{error}</span>
+              <div className="p-3.5 bg-rose-950/80 border border-rose-700/80 rounded-2xl text-rose-200 text-xs space-y-2 shadow-sm animate-in fade-in">
+                <div className="flex items-start gap-2.5">
+                  <AlertCircle className="w-4 h-4 shrink-0 text-rose-400 mt-0.5" />
+                  <span className="font-semibold leading-relaxed">{error}</span>
+                </div>
+                {(error.toLowerCase().includes('vehicle') ||
+                  error.toLowerCase().includes('captain') ||
+                  error.toLowerCase().includes('registered') ||
+                  error.toLowerCase().includes('denied')) && (
+                  <div className="pt-2 border-t border-rose-900/60 flex items-center justify-between text-[11px] text-rose-300">
+                    <span>Association Admin Desk:</span>
+                    <a href="tel:+918254258221" className="text-white font-bold underline hover:text-emerald-400">
+                      08254-258221
+                    </a>
+                  </div>
+                )}
               </div>
             )}
 
@@ -198,9 +238,22 @@ export function OTPLoginPage({ onLogin }: OTPLoginPageProps) {
             </div>
 
             {error && (
-              <div className="flex items-center gap-2 p-3 bg-rose-950/70 border border-rose-800/80 rounded-2xl text-rose-300 text-xs">
-                <AlertCircle className="w-4 h-4 shrink-0" />
-                <span>{error}</span>
+              <div className="p-3.5 bg-rose-950/80 border border-rose-700/80 rounded-2xl text-rose-200 text-xs space-y-2 shadow-sm animate-in fade-in">
+                <div className="flex items-start gap-2.5">
+                  <AlertCircle className="w-4 h-4 shrink-0 text-rose-400 mt-0.5" />
+                  <span className="font-semibold leading-relaxed">{error}</span>
+                </div>
+                {(error.toLowerCase().includes('vehicle') ||
+                  error.toLowerCase().includes('captain') ||
+                  error.toLowerCase().includes('registered') ||
+                  error.toLowerCase().includes('denied')) && (
+                  <div className="pt-2 border-t border-rose-900/60 flex items-center justify-between text-[11px] text-rose-300">
+                    <span>Association Admin Desk:</span>
+                    <a href="tel:+918254258221" className="text-white font-bold underline hover:text-emerald-400">
+                      08254-258221
+                    </a>
+                  </div>
+                )}
               </div>
             )}
 

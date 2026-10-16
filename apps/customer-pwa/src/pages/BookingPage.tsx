@@ -68,7 +68,13 @@ interface FareEstimate {
   baseFare: number;
   distanceFare: number;
   distanceKm: number;
+  platformFee?: number;
+  serviceFee?: number;
+  platformFeeEnabled?: boolean;
+  platformFeeName?: string;
   tax?: number;
+  taxName?: string;
+  taxRate?: number;
   nightCharge?: number;
   currency: string;
   isFixedFare: boolean;
@@ -206,7 +212,13 @@ export function BookingPage({ auth, onBack }: BookingPageProps) {
             baseFare: number;
             distanceFare: number;
             distanceKm: number;
+            platformFee?: number;
+            serviceFee?: number;
+            platformFeeEnabled?: boolean;
+            platformFeeName?: string;
             tax?: number;
+            taxName?: string;
+            taxRate?: number;
             nightFare?: number;
             isFixedFare?: boolean;
             appliedRuleName?: string;
@@ -241,7 +253,13 @@ export function BookingPage({ auth, onBack }: BookingPageProps) {
           baseFare: bd.baseFare,
           distanceFare: bd.distanceFare,
           distanceKm: res.data.routeDistanceKm || bd.distanceKm,
+          platformFee: bd.platformFee ?? bd.serviceFee,
+          serviceFee: bd.serviceFee,
+          platformFeeEnabled: bd.platformFeeEnabled,
+          platformFeeName: bd.platformFeeName,
           tax: bd.tax,
+          taxName: bd.taxName,
+          taxRate: bd.taxRate,
           nightCharge: bd.nightFare,
           currency: 'INR',
           isFixedFare: res.data.isFixedFare ?? bd.isFixedFare ?? false,
@@ -820,9 +838,20 @@ export function BookingPage({ auth, onBack }: BookingPageProps) {
                   </>
                 )}
 
+                {((fareEstimate.platformFee !== undefined && fareEstimate.platformFee > 0) ||
+                  (fareEstimate.serviceFee !== undefined && fareEstimate.serviceFee > 0)) && (
+                  <div className="flex justify-between text-slate-300">
+                    <span className="flex items-center gap-1.5">
+                      <span>{fareEstimate.platformFeeName || 'Platform Convenience Fee'}</span>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300 font-medium">Standard</span>
+                    </span>
+                    <span className="font-mono">₹{(fareEstimate.platformFee ?? fareEstimate.serviceFee ?? 0).toFixed(2)}</span>
+                  </div>
+                )}
+
                 {fareEstimate.tax !== undefined && fareEstimate.tax > 0 && (
                   <div className="flex justify-between text-slate-300">
-                    <span>GST (5%)</span>
+                    <span>{fareEstimate.taxName || 'GST (5%)'}</span>
                     <span className="font-mono">₹{fareEstimate.tax.toFixed(2)}</span>
                   </div>
                 )}

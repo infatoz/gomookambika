@@ -5,8 +5,8 @@ import { OTPPurpose } from '@gomookambika/types';
 export class AuthController {
   // POST /api/v1/auth/request-otp
   async requestOTP(req: Request, res: Response): Promise<void> {
-    const { phone, purpose = OTPPurpose.LOGIN } = req.body;
-    await authService.requestOTP(phone, purpose, req.ip ?? '');
+    const { phone, purpose = OTPPurpose.LOGIN, role } = req.body;
+    await authService.requestOTP(phone, purpose, req.ip ?? '', role);
     res.json({ success: true, message: 'OTP sent successfully' });
   }
 

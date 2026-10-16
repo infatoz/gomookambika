@@ -60,7 +60,13 @@ export class BookingController {
             baseFare: fb.baseFare,
             distanceFare: fb.distanceFare,
             distanceKm: fb.distanceKm,
+            platformFee: fb.platformFee ?? fb.serviceFee,
+            serviceFee: fb.serviceFee,
+            platformFeeEnabled: fb.platformFeeEnabled,
+            platformFeeName: fb.platformFeeName,
             tax: fb.tax,
+            taxName: fb.taxName,
+            taxRate: fb.taxRate,
             nightCharge: fb.nightCharge,
             waitingCharge: fb.waitingCharge,
             isFixedFare: catResult.isFixedFare,
@@ -204,8 +210,28 @@ export class TripController {
   // POST /api/v1/trips/:id/arrived
   async driverArrived(req: Request, res: Response): Promise<void> {
     const driverId = await this.getDriverId(req.user!.userId);
+    const idParam = req.params.id;
+    const bodyBookingId = req.body?.bookingId;
+    const isValidObjectId = (id?: string | null) => typeof id === 'string' && /^[0-9a-fA-F]{24}$/.test(id);
+
+    const matchConditions: any[] = [];
+    if (isValidObjectId(idParam)) {
+      matchConditions.push({ _id: idParam }, { bookingId: idParam });
+    } else if (idParam) {
+      matchConditions.push({ tripNumber: idParam });
+    }
+    if (isValidObjectId(bodyBookingId)) {
+      matchConditions.push({ bookingId: bodyBookingId });
+    }
+
     const trip = await Trip.findOneAndUpdate(
-      { _id: req.params.id, $or: [{ driverId }, { driverId: req.user!.userId }], status: 'DRIVER_ACCEPTED' },
+      {
+        $and: [
+          { $or: matchConditions },
+          { $or: [{ driverId }, { driverId: req.user!.userId }] },
+          { status: { $in: ['DRIVER_ACCEPTED', 'DRIVER_ARRIVING', 'DRIVER_ARRIVED'] } },
+        ],
+      },
       { status: 'DRIVER_ARRIVED', driverArrivedAt: new Date() },
       { new: true }
     );
@@ -213,13 +239,41 @@ export class TripController {
 
     await Booking.findByIdAndUpdate(trip.bookingId, { status: 'DRIVER_ARRIVED' });
 
+    const populatedTrip = await Trip.findById(trip._id)
+      .populate('bookingId')
+      .populate('customerId', 'name phone');
+
     const { getIO } = await import('@/sockets');
-    getIO().to(`customer:${trip.customerId}`).emit('trip:status:changed', {
+    const io = getIO();
+    io.to(`customer:${trip.customerId}`).emit('trip:status:changed', {
       tripId: trip.id,
+      bookingId: trip.bookingId,
+      status: 'DRIVER_ARRIVED',
+    });
+    io.to(`customer:${trip.customerId}`).emit('booking:status:changed', {
+      bookingId: trip.bookingId,
+      status: 'DRIVER_ARRIVED',
+    });
+    io.to(`driver:${driverId}`).emit('trip:status:changed', {
+      tripId: trip.id,
+      bookingId: trip.bookingId,
       status: 'DRIVER_ARRIVED',
     });
 
-    res.json({ success: true, message: 'Arrived at pickup location', data: trip });
+    // Send push notification to customer
+    import('@/services/PushNotificationService').then(({ pushNotificationService }) => {
+      pushNotificationService
+        .notifyCustomerTripUpdate(trip.customerId.toString(), {
+          title: '📍 Captain Arrived at Pickup!',
+          body: 'Your captain has arrived at the pickup location. Please meet your captain and share your start OTP.',
+          type: 'DRIVER_ARRIVED',
+          bookingId: trip.bookingId.toString(),
+          status: 'DRIVER_ARRIVED',
+        })
+        .catch(() => {});
+    }).catch(() => {});
+
+    res.json({ success: true, message: 'Arrived at pickup location', data: populatedTrip || trip });
   }
 
   // POST /api/v1/trips/:id/start
@@ -240,19 +294,23 @@ export class TripController {
 
     const driverId = await this.getDriverId(req.user!.userId);
     const idParam = req.params.id;
-    const isValidObjectId = (id: string) => /^[0-9a-fA-F]{24}$/.test(id);
+    const bodyBookingId = req.body?.bookingId;
+    const isValidObjectId = (id?: string | null) => typeof id === 'string' && /^[0-9a-fA-F]{24}$/.test(id);
+
+    const matchConditions: any[] = [];
+    if (isValidObjectId(idParam)) {
+      matchConditions.push({ _id: idParam }, { bookingId: idParam });
+    } else if (idParam) {
+      matchConditions.push({ tripNumber: idParam });
+    }
+    if (isValidObjectId(bodyBookingId)) {
+      matchConditions.push({ bookingId: bodyBookingId });
+    }
 
     const trip = await Trip.findOne({
       $and: [
-        {
-          $or: [
-            ...(isValidObjectId(idParam) ? [{ _id: idParam }, { bookingId: idParam }] : []),
-            { tripNumber: idParam },
-          ],
-        },
-        {
-          $or: [{ driverId }, { driverId: req.user!.userId }],
-        },
+        { $or: matchConditions },
+        { $or: [{ driverId }, { driverId: req.user!.userId }] },
       ],
       status: { $in: ['DRIVER_ACCEPTED', 'DRIVER_ARRIVING', 'DRIVER_ARRIVED', 'TRIP_STARTED'] },
     }).select('+startOTPHash');
@@ -260,7 +318,8 @@ export class TripController {
     if (!trip) throw errors.notFound('Trip');
 
     if (trip.status === ('TRIP_STARTED' as any)) {
-      res.json({ success: true, message: 'Trip already started', data: trip });
+      const populated = await Trip.findById(trip._id).populate('bookingId').populate('customerId', 'name phone');
+      res.json({ success: true, message: 'Trip already started', data: populated || trip });
       return;
     }
 
@@ -295,6 +354,13 @@ export class TripController {
     trip.status = 'TRIP_STARTED' as any;
     trip.startedAt = new Date();
     trip.startOTPVerified = true;
+
+    // Ensure finalFare has full booking fareSnapshot if not already populated
+    const booking = await Booking.findById(trip.bookingId);
+    if ((!trip.finalFare || !trip.finalFare.total) && booking?.fareSnapshot) {
+      trip.finalFare = booking.fareSnapshot;
+    }
+
     await trip.save();
 
     await Booking.findByIdAndUpdate(trip.bookingId, { status: 'TRIP_STARTED' });
@@ -304,6 +370,10 @@ export class TripController {
       status: 'ON_TRIP',
       activeTripId: trip._id,
     });
+
+    const populatedTrip = await Trip.findById(trip._id)
+      .populate('bookingId')
+      .populate('customerId', 'name phone');
 
     const { getIO } = await import('@/sockets');
     const io = getIO();
@@ -318,58 +388,121 @@ export class TripController {
     });
     io.to(`driver:${driverId}`).emit('trip:status:changed', {
       tripId: trip.id,
+      bookingId: trip.bookingId,
       status: 'TRIP_STARTED',
     });
 
-    res.json({ success: true, message: 'Trip started successfully', data: trip });
+    // Send push notification to customer
+    import('@/services/PushNotificationService').then(({ pushNotificationService }) => {
+      pushNotificationService
+        .notifyCustomerTripUpdate(trip.customerId.toString(), {
+          title: '🚀 Trip Started!',
+          body: 'Your ride is in progress. Sit back and enjoy a safe journey with Go Mookambika.',
+          type: 'TRIP_STARTED',
+          bookingId: trip.bookingId.toString(),
+          status: 'TRIP_STARTED',
+        })
+        .catch(() => {});
+    }).catch(() => {});
+
+    res.json({ success: true, message: 'Trip started successfully', data: populatedTrip || trip });
   }
 
   // POST /api/v1/trips/:id/complete
   async completeTrip(req: Request, res: Response): Promise<void> {
     const { actualDistanceKm, actualDurationMinutes, paymentMethod = 'CASH', amountPaid } = req.body;
     const driverId = await this.getDriverId(req.user!.userId);
+    const idParam = req.params.id;
+    const bodyBookingId = req.body?.bookingId;
+    const isValidObjectId = (id?: string | null) => typeof id === 'string' && /^[0-9a-fA-F]{24}$/.test(id);
+
+    const matchConditions: any[] = [];
+    if (isValidObjectId(idParam)) {
+      matchConditions.push({ _id: idParam }, { bookingId: idParam });
+    } else if (idParam) {
+      matchConditions.push({ tripNumber: idParam });
+    }
+    if (isValidObjectId(bodyBookingId)) {
+      matchConditions.push({ bookingId: bodyBookingId });
+    }
+
     const trip = await Trip.findOne({
-      _id: req.params.id,
-      $or: [{ driverId }, { driverId: req.user!.userId }],
-      status: { $in: ['TRIP_STARTED', 'TRIP_IN_PROGRESS'] },
+      $and: [
+        { $or: matchConditions },
+        { $or: [{ driverId }, { driverId: req.user!.userId }] },
+      ],
+      status: { $in: ['TRIP_STARTED', 'TRIP_IN_PROGRESS', 'TRIP_COMPLETED'] },
     });
     if (!trip) throw errors.notFound('Trip');
 
     const validPaymentMethod = paymentMethod === 'UPI' ? 'UPI' : 'CASH';
 
-    trip.status = 'TRIP_COMPLETED' as any;
-    trip.completedAt = new Date();
-    trip.actualDistanceKm = actualDistanceKm;
-    trip.actualDurationMinutes = actualDurationMinutes;
-    trip.paymentMethod = validPaymentMethod;
-    trip.paymentStatus = 'PAID';
-    const finalAmount = amountPaid || trip.finalFare?.total || 0;
-    trip.paidAmount = finalAmount;
-    await trip.save();
+    if (trip.status !== ('TRIP_COMPLETED' as any)) {
+      const booking = await Booking.findById(trip.bookingId);
+      const finalAmount = amountPaid || trip.finalFare?.total || booking?.fareSnapshot?.total || 0;
+      trip.status = 'TRIP_COMPLETED' as any;
+      trip.completedAt = new Date();
+      trip.actualDistanceKm = actualDistanceKm;
+      trip.actualDurationMinutes = actualDurationMinutes;
+      trip.paymentMethod = validPaymentMethod;
+      trip.paymentStatus = 'PAID';
+      trip.paidAmount = finalAmount;
+      if ((!trip.finalFare || !trip.finalFare.total) && booking?.fareSnapshot) {
+        trip.finalFare = booking.fareSnapshot;
+      }
+      await trip.save();
 
-    await Booking.findByIdAndUpdate(trip.bookingId, {
-      status: 'TRIP_COMPLETED',
-      paymentStatus: 'PAID',
-      paymentOption: validPaymentMethod,
-    });
+      await Booking.findByIdAndUpdate(trip.bookingId, {
+        status: 'TRIP_COMPLETED',
+        paymentStatus: 'PAID',
+        paymentOption: validPaymentMethod,
+      });
 
-    // Update driver
-    const { Driver } = await import('@/models/Driver');
-    await Driver.findByIdAndUpdate(trip.driverId, {
-      status: 'AVAILABLE',
-      activeTripId: null,
-      $inc: { totalTrips: 1, totalEarnings: finalAmount },
-    });
+      // Update driver
+      const { Driver } = await import('@/models/Driver');
+      await Driver.findByIdAndUpdate(trip.driverId, {
+        status: 'AVAILABLE',
+        activeTripId: null,
+        $inc: { totalTrips: 1, totalEarnings: finalAmount },
+      });
+    }
+
+    const finalAmount = trip.paidAmount || trip.finalFare?.total || 0;
 
     const { getIO } = await import('@/sockets');
     getIO().to(`customer:${trip.customerId}`).emit('trip:status:changed', {
       tripId: trip.id,
+      bookingId: trip.bookingId,
+      status: 'TRIP_COMPLETED',
+      paymentMethod: validPaymentMethod,
+      amountPaid: finalAmount,
+    });
+    getIO().to(`customer:${trip.customerId}`).emit('booking:status:changed', {
+      bookingId: trip.bookingId,
       status: 'TRIP_COMPLETED',
       paymentMethod: validPaymentMethod,
       amountPaid: finalAmount,
     });
 
-    res.json({ success: true, message: 'Trip completed successfully', data: trip });
+    // Send push notification to customer
+    import('@/services/PushNotificationService').then(({ pushNotificationService }) => {
+      pushNotificationService
+        .notifyCustomerTripUpdate(trip.customerId.toString(), {
+          title: '🎉 Trip Completed!',
+          body: `You have reached your destination. Total fare: ₹${Math.round(finalAmount)} (${validPaymentMethod}). Thank you for riding with Go Mookambika!`,
+          type: 'TRIP_COMPLETED',
+          bookingId: trip.bookingId.toString(),
+          status: 'TRIP_COMPLETED',
+          fare: finalAmount,
+        })
+        .catch(() => {});
+    }).catch(() => {});
+
+    const populatedTrip = await Trip.findById(trip._id)
+      .populate('bookingId')
+      .populate('customerId', 'name phone');
+
+    res.json({ success: true, message: 'Trip completed successfully', data: populatedTrip || trip });
   }
 
   // POST /api/v1/trips/:id/rate

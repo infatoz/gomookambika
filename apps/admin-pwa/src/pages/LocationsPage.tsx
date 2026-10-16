@@ -255,15 +255,44 @@ export function LocationsPage() {
   const openCreate = () => { setEditTarget(null); setForm(EMPTY_FORM); setFormError(''); setCodeConflict(false); setDrawerOpen(true); };
   const openEdit = (loc: Location) => {
     setEditTarget(loc);
+    const coords = loc.geoPoint?.coordinates;
+    let latStr = '';
+    let lngStr = '';
+    if (coords && Array.isArray(coords) && coords.length === 2) {
+      if (coords[0] > coords[1]) {
+        lngStr = String(coords[0]);
+        latStr = String(coords[1]);
+      } else {
+        latStr = String(coords[0]);
+        lngStr = String(coords[1]);
+      }
+    } else if ((loc as any).latitude !== undefined && (loc as any).longitude !== undefined) {
+      latStr = String((loc as any).latitude);
+      lngStr = String((loc as any).longitude);
+    }
+
     setForm({
-      name: loc.name, code: loc.code, type: loc.type, description: '',
-      address: { line1: loc.address.line1, city: loc.address.city, state: loc.address.state, country: 'India' },
-      latitude: String(loc.geoPoint?.coordinates[1] ?? ''),
-      longitude: String(loc.geoPoint?.coordinates[0] ?? ''),
-      queueEnabled: loc.queueEnabled, queueRadius: loc.queueRadius,
-      bookingEnabled: loc.bookingEnabled, qrEnabled: loc.qrEnabled, status: loc.status,
+      name: loc.name || '',
+      code: loc.code || '',
+      type: loc.type || 'CITY_LOCATION',
+      description: (loc as any).description || '',
+      address: {
+        line1: loc.address?.line1 || '',
+        city: loc.address?.city || '',
+        state: loc.address?.state || 'Karnataka',
+        country: (loc.address as any)?.country || 'India',
+      },
+      latitude: latStr,
+      longitude: lngStr,
+      queueEnabled: loc.queueEnabled ?? false,
+      queueRadius: loc.queueRadius ?? 150,
+      bookingEnabled: loc.bookingEnabled ?? true,
+      qrEnabled: loc.qrEnabled ?? false,
+      status: loc.status || 'ACTIVE',
     });
-    setFormError(''); setCodeConflict(false); setDrawerOpen(true);
+    setFormError('');
+    setCodeConflict(false);
+    setDrawerOpen(true);
   };
 
   const sf = (k: string, v: unknown) => setForm(f => ({ ...f, [k]: v }));
@@ -314,7 +343,11 @@ export function LocationsPage() {
         qrEnabled:      form.qrEnabled,
       };
       if (form.latitude && form.longitude && !isNaN(+form.latitude) && !isNaN(+form.longitude)) {
-        payload.geoPoint = { type: 'Point', coordinates: [+form.longitude, +form.latitude] };
+        const lat = Number(form.latitude);
+        const lng = Number(form.longitude);
+        payload.latitude = lat;
+        payload.longitude = lng;
+        payload.geoPoint = { type: 'Point', coordinates: [lng, lat] };
       }
       if (editTarget) {
         await apiClient.put(`/admin/locations/${editTarget._id}`, payload);
@@ -429,20 +462,73 @@ export function LocationsPage() {
       ),
     },
     {
-      title: 'GPS',
+      title: 'GPS Coordinates',
       render: (_: unknown, loc: Location) => {
-        const lat = loc.geoPoint?.coordinates[1];
-        const lng = loc.geoPoint?.coordinates[0];
-        return lat && lng ? (
-          <a
-            href={`https://www.openstreetmap.org/?mlat=${lat}&mlon=${lng}#map=16/${lat}/${lng}`}
-            target="_blank" rel="noreferrer"
-            style={{ display: 'flex', alignItems: 'center', gap: 4, color: '#4F46E5', fontSize: 12, textDecoration: 'none' }}
-          >
-            <LinkOutlined />
-            <span style={{ fontFamily: 'monospace' }}>{Number(lat).toFixed(4)}, {Number(lng).toFixed(4)}</span>
-          </a>
-        ) : <Text type="secondary" style={{ fontSize: 12 }}>—</Text>;
+        const coords = loc.geoPoint?.coordinates;
+        let lat: number | undefined;
+        let lng: number | undefined;
+        if (coords && Array.isArray(coords) && coords.length === 2) {
+          if (coords[0] > coords[1]) {
+            lng = coords[0];
+            lat = coords[1];
+          } else {
+            lat = coords[0];
+            lng = coords[1];
+          }
+        } else if ((loc as any).latitude !== undefined && (loc as any).longitude !== undefined) {
+          lat = Number((loc as any).latitude);
+          lng = Number((loc as any).longitude);
+        }
+
+        if (lat !== undefined && lng !== undefined && !isNaN(lat) && !isNaN(lng)) {
+          return (
+            <a
+              href={`https://www.google.com/maps/search/?api=1&query=${lat},${lng}`}
+              target="_blank"
+              rel="noreferrer"
+              title="Click to view in Google Maps / OSM"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 5,
+                color: '#4F46E5',
+                fontSize: 12,
+                textDecoration: 'none',
+                background: '#EEF2FF',
+                padding: '3px 8px',
+                borderRadius: 6,
+                fontWeight: 600,
+              }}
+            >
+              <CompassOutlined style={{ color: '#4F46E5' }} />
+              <span style={{ fontFamily: 'monospace' }}>
+                {lat.toFixed(4)}, {lng.toFixed(4)}
+              </span>
+            </a>
+          );
+        }
+
+        return (
+          <Tooltip title="GPS coordinates not set. Click to edit and set pin.">
+            <span
+              onClick={() => openEdit(loc)}
+              style={{
+                cursor: 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 4,
+                color: '#D97706',
+                background: '#FEF3C7',
+                padding: '2px 7px',
+                borderRadius: 6,
+                fontSize: 11,
+                fontWeight: 500,
+              }}
+            >
+              <EnvironmentOutlined /> Not Set
+            </span>
+          </Tooltip>
+        );
       },
     },
     {

@@ -8,10 +8,14 @@ interface DrawerProps {
   children: React.ReactNode;
   footer?: React.ReactNode;
   width?: number;
+  size?: number | 'default' | 'large';
 }
 
-export function Drawer({ open, onClose, title, subtitle, children, footer, width = 480 }: DrawerProps) {
-  const safeWidth = Math.min(width, typeof window !== 'undefined' ? window.innerWidth : width);
+export function Drawer({ open, onClose, title, subtitle, children, footer, width, size = 480 }: DrawerProps) {
+  const chosenSize = size ?? width ?? 480;
+  const safeWidth = typeof chosenSize === 'number'
+    ? Math.min(chosenSize, typeof window !== 'undefined' ? window.innerWidth : chosenSize)
+    : 480;
   return (
     <AntDrawer
       open={open}

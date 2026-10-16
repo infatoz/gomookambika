@@ -1,5 +1,6 @@
 import React, { useRef } from 'react';
 import { Modal, Button, Tag, Space, Divider } from 'antd';
+import { antMessage } from '@/lib/antd';
 import {
   PrinterOutlined,
   DownloadOutlined,
@@ -75,6 +76,14 @@ export interface BookingTicketData {
     nightCharges?: number;
     subtotal?: number;
     taxes?: number;
+    tax?: number;
+    taxRate?: number;
+    taxName?: string;
+    taxEnabled?: boolean;
+    platformFee?: number;
+    serviceFee?: number;
+    platformFeeEnabled?: boolean;
+    platformFeeName?: string;
     total: number;
     currency?: string;
   };
@@ -97,9 +106,11 @@ export function ETicketModal({ open, onClose, booking }: ETicketModalProps) {
 
   const fare = booking.fareSnapshot ?? { total: 0 };
   const totalAmount = fare.total || 0;
-  // Estimate or calculate taxes and subtotal if not explicit
-  const subtotal = fare.subtotal || Math.round((totalAmount / 1.05) * 100) / 100;
-  const totalTax = fare.taxes || Math.round((totalAmount - subtotal) * 100) / 100;
+  const platformFeeAmount = fare.platformFee ?? fare.serviceFee ?? 0;
+  // Use explicit tax if present
+  const totalTax = fare.tax !== undefined ? fare.tax : (fare.taxes !== undefined ? fare.taxes : 0);
+  const totalTaxRate = fare.taxRate || 5;
+  const subtotal = fare.subtotal || Math.max(0, Math.round((totalAmount - totalTax - platformFeeAmount) * 100) / 100);
   const cgst = Math.round((totalTax / 2) * 100) / 100;
   const sgst = Math.round((totalTax - cgst) * 100) / 100;
 
@@ -123,7 +134,7 @@ export function ETicketModal({ open, onClose, booking }: ETicketModalProps) {
 
     const printWindow = window.open('', '_blank', 'width=900,height=750');
     if (!printWindow) {
-      alert('Please allow popups to print ticket');
+      antMessage.warning('Please allow popups in your browser to print the e-ticket.');
       return;
     }
 
@@ -444,13 +455,14 @@ export function ETicketModal({ open, onClose, booking }: ETicketModalProps) {
             }}
           >
             <div>
-              <div className="flex items-center gap-2">
-                <span className="text-2xl">🚕</span>
-                <span className="text-xl font-extrabold uppercase tracking-wide text-white">
-                  GO MOOKAMBIKA TAXI
-                </span>
-                <span className="text-xs bg-emerald-500/20 text-emerald-300 border border-emerald-400/40 px-2 py-0.5 rounded-full font-bold">
-                  VERIFIED PASS
+              <div className="flex items-center gap-3">
+                <img
+                  src="/logo.png"
+                  alt="Go Mookambika"
+                  className="h-10 w-auto object-contain filter drop-shadow-md"
+                />
+                <span className="text-xs bg-emerald-500/20 text-emerald-300 border border-emerald-400/40 px-2.5 py-1 rounded-full font-bold">
+                  OFFICIAL PERMIT PASS
                 </span>
               </div>
               <div className="text-xs text-indigo-200 mt-1 font-medium">
@@ -674,16 +686,29 @@ export function ETicketModal({ open, onClose, booking }: ETicketModalProps) {
                       <td className="p-2.5 text-right font-semibold">₹{fare.waitingFare.toFixed(2)}</td>
                     </tr>
                   ) : null}
-                  <tr className="bg-slate-50/70 text-slate-500">
-                    <td className="p-2">CGST (2.5%)</td>
-                    <td className="p-2 text-center">2.5%</td>
-                    <td className="p-2 text-right">₹{cgst.toFixed(2)}</td>
-                  </tr>
-                  <tr className="bg-slate-50/70 text-slate-500">
-                    <td className="p-2">SGST (2.5%)</td>
-                    <td className="p-2 text-center">2.5%</td>
-                    <td className="p-2 text-right">₹{sgst.toFixed(2)}</td>
-                  </tr>
+                  {platformFeeAmount > 0 ? (
+                    <tr>
+                      <td className="p-2.5">{fare.platformFeeName || 'Platform Convenience Fee'}</td>
+                      <td className="p-2.5 text-center text-slate-500">Service Fee</td>
+                      <td className="p-2.5 text-right font-semibold">
+                        ₹{platformFeeAmount.toFixed(2)}
+                      </td>
+                    </tr>
+                  ) : null}
+                  {totalTax > 0 ? (
+                    <>
+                      <tr className="bg-slate-50/70 text-slate-500">
+                        <td className="p-2">CGST ({((totalTaxRate / 2) || 2.5).toFixed(1)}%)</td>
+                        <td className="p-2 text-center">{((totalTaxRate / 2) || 2.5).toFixed(1)}%</td>
+                        <td className="p-2 text-right">₹{cgst.toFixed(2)}</td>
+                      </tr>
+                      <tr className="bg-slate-50/70 text-slate-500">
+                        <td className="p-2">SGST ({((totalTaxRate / 2) || 2.5).toFixed(1)}%)</td>
+                        <td className="p-2 text-center">{((totalTaxRate / 2) || 2.5).toFixed(1)}%</td>
+                        <td className="p-2 text-right">₹{sgst.toFixed(2)}</td>
+                      </tr>
+                    </>
+                  ) : null}
                   <tr className="bg-indigo-50 font-bold text-slate-900 border-t-2 border-indigo-200">
                     <td className="p-3 text-sm font-extrabold text-indigo-900">
                       TOTAL FARE PAID / PAYABLE

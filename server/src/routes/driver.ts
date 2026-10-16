@@ -12,17 +12,47 @@ router.use(authenticate, requireRoles(UserRole.DRIVER));
 
 // GET /api/v1/drivers/me  (alias for /profile used by driver-pwa)
 router.get('/me', async (req, res) => {
-  const driver = await Driver.findOne({ userId: req.user!.userId })
-    .populate('userId', 'phone email');
-  res.json({ success: true, data: driver });
+  const driver = await Driver.findOne({
+    $or: [{ userId: req.user!.userId }, { _id: req.user!.userId }],
+  }).populate('userId', 'phone email');
+  if (!driver) { res.status(404).json({ success: false, message: 'Driver not found' }); return; }
+  
+  const vehicle = await Vehicle.findOne({
+    $or: [{ assignedDriverId: driver._id }, { assignedDriverId: driver.userId }],
+  }).populate('categoryId');
+
+  if (!vehicle) {
+    res.status(403).json({
+      success: false,
+      code: 'NO_VEHICLE_ASSIGNED',
+      message: 'No vehicle is currently assigned to your captain account. Only drivers with an assigned vehicle can log in. Please contact the association administrator.',
+    });
+    return;
+  }
+
+  const doc = driver.toObject();
+  (doc as any).vehicle = vehicle;
+  res.json({ success: true, data: doc });
 });
 
 // GET /api/v1/drivers/profile
 router.get('/profile', async (req, res) => {
-  const driver = await Driver.findOne({ userId: req.user!.userId })
+  const driver = await Driver.findOne({
+    $or: [{ userId: req.user!.userId }, { _id: req.user!.userId }],
+  })
     .populate('userId', 'phone email deviceTokens')
     .populate('activeQueueEntryId');
-  res.json({ success: true, data: driver });
+  if (!driver) { res.status(404).json({ success: false, message: 'Driver not found' }); return; }
+
+  const vehicle = await Vehicle.findOne({
+    $or: [{ assignedDriverId: driver._id }, { assignedDriverId: driver.userId }],
+  }).populate('categoryId');
+
+  const doc = driver.toObject();
+  if (vehicle) {
+    (doc as any).vehicle = vehicle;
+  }
+  res.json({ success: true, data: doc });
 });
 
 // GET /api/v1/drivers/vehicle
@@ -31,31 +61,25 @@ router.get('/vehicle', async (req, res) => {
     $or: [{ userId: req.user!.userId }, { _id: req.user!.userId }],
   });
   if (!driver) { res.status(404).json({ success: false, message: 'Driver not found' }); return; }
-  let vehicle = await Vehicle.findOne({ assignedDriverId: driver._id }).populate('categoryId');
+  
+  const vehicle = await Vehicle.findOne({
+    $or: [{ assignedDriverId: driver._id }, { assignedDriverId: driver.userId }],
+  }).populate('categoryId');
+
   if (!vehicle) {
-    const defaultCat = await VehicleCategory.findOne({ status: 'ACTIVE' });
-    if (defaultCat) {
-      const reg = `KA20 D ${driver.driverCode ? driver.driverCode.replace('DRV-', '') : '1001'}`;
-      vehicle = await Vehicle.create({
-        registrationNumber: reg,
-        categoryId: defaultCat._id,
-        brand: 'Maruti Suzuki',
-        vehicleModel: 'Dzire Tour',
-        color: 'White',
-        fuelType: 'PETROL',
-        manufacturingYear: 2023,
-        seatCapacity: 4,
-        luggageCapacity: 2,
-        ac: true,
-        ownerName: driver.name,
-        assignedDriverId: driver._id,
-        status: 'ACTIVE',
-        documents: [],
-      });
-      vehicle = await Vehicle.findById(vehicle._id).populate('categoryId');
-    }
+    res.status(404).json({
+      success: false,
+      code: 'NO_VEHICLE_ASSIGNED',
+      message: 'No vehicle is currently assigned to your captain account. Please contact the association administrator to assign a vehicle.',
+    });
+    return;
   }
-  res.json({ success: true, data: vehicle });
+
+  const vObj = vehicle.toObject ? vehicle.toObject() : { ...vehicle };
+  if (!vObj.ownerPhone && vObj.ownerName === driver.name) {
+    vObj.ownerPhone = driver.phone;
+  }
+  res.json({ success: true, data: vObj });
 });
 
 // GET /api/v1/drivers/trips
@@ -200,6 +224,29 @@ router.patch('/upi', async (req, res) => {
       upiBeneficiaryName: driver.upiBeneficiaryName || driver.name,
     },
   });
+});
+
+// GET /api/v1/drivers/association & /api/v1/drivers/settings
+router.get(['/association', '/settings'], async (_req, res) => {
+  const { SystemSetting } = await import('@/models/SystemSetting');
+  const dbSettings = await SystemSetting.find();
+  const settingsMap: Record<string, any> = {
+    platformName: 'Go Mookambika Tourist Taxi Association',
+    registrationNumber: 'KA-UD-TA-2024-089',
+    supportPhone: '+91 94812 00000',
+    supportEmail: 'support@gomookambika.com',
+    officeAddress: 'Car Street, Near Mookambika Temple, Kollur, Udupi Dist, Karnataka - 576220',
+    operatingRegion: 'Kollur, Byndoor & Coastal Karnataka',
+    emergencySosContact: '+91 94812 00000',
+    lostAndFoundHelpline: '+91 94812 00001',
+    nightTravelAdvisory: 'Certified hill-route drivers with 24x7 control room tracking on all ghat and night journeys.',
+  };
+  for (const doc of dbSettings) {
+    if (doc.value !== undefined && doc.value !== null && doc.value !== '') {
+      settingsMap[doc.key] = doc.value;
+    }
+  }
+  res.json({ success: true, data: settingsMap });
 });
 
 export default router;

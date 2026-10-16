@@ -25,4 +25,49 @@ router.get('/fixed-routes', async (_req, res) => {
   res.json({ success: true, data: rules });
 });
 
+// Public Pricing & Tax Settings (for customer & driver app display)
+router.get('/settings', async (_req, res) => {
+  const { SystemSetting } = await import('@/models/SystemSetting');
+  const dbSettings = await SystemSetting.find({
+    key: {
+      $in: [
+        'taxEnabled',
+        'taxPercentage',
+        'taxName',
+        'platformFeeEnabled',
+        'platformFeeType',
+        'platformFeeAmount',
+        'platformFeeName',
+      ],
+    },
+  });
+
+  const settingsMap: Record<string, any> = {
+    taxEnabled: true,
+    taxPercentage: 5,
+    taxName: 'GST (5%)',
+    platformFeeEnabled: false,
+    platformFeeType: 'FIXED',
+    platformFeeAmount: 15,
+    platformFeeName: 'Platform Convenience Fee',
+  };
+
+  for (const doc of dbSettings) {
+    settingsMap[doc.key] = doc.value;
+  }
+
+  res.json({
+    success: true,
+    data: {
+      taxEnabled: Boolean(settingsMap.taxEnabled),
+      taxPercentage: Number(settingsMap.taxPercentage) || 0,
+      taxName: String(settingsMap.taxName || 'GST'),
+      platformFeeEnabled: Boolean(settingsMap.platformFeeEnabled),
+      platformFeeType: settingsMap.platformFeeType === 'PERCENTAGE' ? 'PERCENTAGE' : 'FIXED',
+      platformFeeAmount: Number(settingsMap.platformFeeAmount) || 0,
+      platformFeeName: String(settingsMap.platformFeeName || 'Platform Convenience Fee'),
+    },
+  });
+});
+
 export default router;

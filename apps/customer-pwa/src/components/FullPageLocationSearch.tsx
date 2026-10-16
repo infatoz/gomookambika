@@ -152,11 +152,23 @@ export function FullPageLocationSearch({
 
   // Handle location swap
   const handleSwap = () => {
-    if (selectedPickupLoc && selectedDropLoc) {
-      const p = selectedPickupLoc;
-      const d = selectedDropLoc;
-      onSelectPickup(d);
-      onSelectDrop(p);
+    const prevPText = pickupText;
+    const prevDText = dropText;
+    const prevPLoc = selectedPickupLoc;
+    const prevDLoc = selectedDropLoc;
+
+    if (prevDLoc) {
+      onSelectPickup(prevDLoc);
+    } else if (prevDText) {
+      const match = locations.find(l => l.name.toLowerCase() === prevDText.toLowerCase());
+      onSelectPickup(match || { _id: '', name: prevDText });
+    }
+
+    if (prevPLoc) {
+      onSelectDrop(prevPLoc);
+    } else if (prevPText) {
+      const match = locations.find(l => l.name.toLowerCase() === prevPText.toLowerCase());
+      onSelectDrop(match || { _id: '', name: prevPText });
     }
   };
 
@@ -241,8 +253,8 @@ export function FullPageLocationSearch({
                 setSearchQuery('');
                 searchInputRef.current?.focus();
               }}
-              className={`flex items-center gap-3 relative pb-2.5 cursor-pointer rounded-xl px-2 py-1.5 transition-colors ${
-                activeInput === 'pickup' ? 'bg-indigo-50/60 ring-1 ring-indigo-200' : 'hover:bg-neutral-50'
+              className={`flex items-center gap-3 relative pb-2.5 cursor-pointer rounded-xl px-2.5 py-2 transition-colors ${
+                activeInput === 'pickup' ? 'bg-neutral-100 ring-2 ring-black' : 'hover:bg-neutral-50'
               }`}
             >
               {/* Green Pickup Circle */}
@@ -251,19 +263,13 @@ export function FullPageLocationSearch({
               </div>
 
               <div className="flex-1 min-w-0">
-                <div className="text-[10px] font-bold uppercase tracking-wider text-neutral-400">
-                  Pickup Point
+                <div className="text-[10px] font-bold uppercase tracking-wider text-neutral-500">
+                  From (Pickup Point)
                 </div>
                 <div className="text-xs md:text-sm font-bold text-neutral-900 truncate">
                   {pickupText || 'Select pickup location'}
                 </div>
               </div>
-
-              {activeInput === 'pickup' && (
-                <span className="text-[10px] font-bold text-indigo-700 bg-indigo-100 px-2 py-0.5 rounded-full">
-                  Editing
-                </span>
-              )}
 
               {/* Swap Button */}
               <button
@@ -272,7 +278,7 @@ export function FullPageLocationSearch({
                   e.stopPropagation();
                   handleSwap();
                 }}
-                className="w-8 h-8 rounded-full bg-neutral-100 hover:bg-neutral-200 flex items-center justify-center text-neutral-700 transition-colors shrink-0 active:scale-95 shadow-2xs"
+                className="w-8 h-8 rounded-full bg-white hover:bg-neutral-200 border border-neutral-200 flex items-center justify-center text-neutral-800 transition-colors shrink-0 active:scale-90 shadow-xs"
                 title="Swap pickup and destination"
               >
                 <ArrowRightLeft className="w-3.5 h-3.5" />
@@ -286,8 +292,8 @@ export function FullPageLocationSearch({
                 setSearchQuery('');
                 searchInputRef.current?.focus();
               }}
-              className={`flex items-center gap-3 relative pt-2 cursor-pointer rounded-xl px-2 py-1.5 transition-colors ${
-                activeInput === 'drop' ? 'bg-indigo-50/60 ring-1 ring-indigo-200' : 'hover:bg-neutral-50'
+              className={`flex items-center gap-3 relative pt-2.5 cursor-pointer rounded-xl px-2.5 py-2 transition-colors ${
+                activeInput === 'drop' ? 'bg-neutral-100 ring-2 ring-black' : 'hover:bg-neutral-50'
               }`}
             >
               {/* Black Drop Square */}
@@ -296,19 +302,13 @@ export function FullPageLocationSearch({
               </div>
 
               <div className="flex-1 min-w-0">
-                <div className="text-[10px] font-bold uppercase tracking-wider text-neutral-400">
-                  Drop Destination
+                <div className="text-[10px] font-bold uppercase tracking-wider text-neutral-500">
+                  To (Drop Destination)
                 </div>
                 <div className="text-xs md:text-sm font-bold text-neutral-900 truncate">
                   {dropText || 'Where are you going?'}
                 </div>
               </div>
-
-              {activeInput === 'drop' && (
-                <span className="text-[10px] font-bold text-indigo-700 bg-indigo-100 px-2 py-0.5 rounded-full">
-                  Editing
-                </span>
-              )}
             </div>
           </div>
 

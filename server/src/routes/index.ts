@@ -8,6 +8,7 @@ import locationRoutes from './location';
 import adminRoutes from './admin';
 import mapRoutes from './map';
 import vehicleRoutes from './vehicle';
+import notificationRoutes from './notifications';
 
 export function setupRoutes(app: Express): void {
   const base = '/api/v1';
@@ -28,4 +29,5 @@ export function setupRoutes(app: Express): void {
   app.use(`${base}/vehicles`, vehicleRoutes);
   app.use(`${base}/admin`, adminRoutes);
   app.use(`${base}/map`, mapRoutes);
+  app.use(`${base}/notifications`, notificationRoutes);
 }

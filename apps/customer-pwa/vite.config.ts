@@ -8,7 +8,7 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['icon.svg', 'apple-touch-icon.png'],
+      includeAssets: ['app-icon.png', 'logo.png', 'icon-192.png', 'icon-512.png'],
       manifest: {
         name: 'Go Mookambika',
         short_name: 'GoMookambika',
@@ -23,6 +23,7 @@ export default defineConfig({
         ],
       },
       workbox: {
+        importScripts: ['/sw-push.js'],
         skipWaiting: true,
         clientsClaim: true,
         cleanupOutdatedCaches: true,

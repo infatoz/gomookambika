@@ -110,6 +110,18 @@ export function PricingRulesPage() {
   const [calcLoading, setCalcLoading] = useState(false);
   const [editingRule, setEditingRule] = useState<PricingRuleItem | null>(null);
 
+  // Multi-Vehicle Category & Priority Rules State
+  const [vehicleMode, setVehicleMode] = useState<'SINGLE' | 'MULTI'>('SINGLE');
+  const [multiCategoryRules, setMultiCategoryRules] = useState<Array<{
+    key: string;
+    vehicleCategoryId: string;
+    priority: number;
+    fixedPrice: number | null;
+    roundTripPrice: number | null;
+    includedKm?: number;
+    extraKmRate?: number;
+  }>>([]);
+
   // 1. Fetch Pricing Rules
   const {
     data: rules = [],
@@ -181,9 +193,73 @@ export function PricingRulesPage() {
     },
   });
 
+  // Multi-Category Helper Methods
+  const autoFillAllCategories = (baseFixedPrice = 800) => {
+    if (!categories || categories.length === 0) {
+      toast.error('No vehicle categories found to populate');
+      return;
+    }
+    const generated = categories.map((cat, idx) => ({
+      key: cat._id,
+      vehicleCategoryId: cat._id,
+      priority: 10 + idx * 5,
+      fixedPrice: Math.round((baseFixedPrice * (1 + idx * 0.35)) / 50) * 50,
+      roundTripPrice: Math.round((baseFixedPrice * (1 + idx * 0.35) * 1.8) / 50) * 50,
+      includedKm: 40,
+      extraKmRate: 16 + idx * 4,
+    }));
+    setMultiCategoryRules(generated);
+    toast.success(`Populated ${generated.length} vehicle categories with priority rules`);
+  };
+
+  const addCategoryRuleRow = () => {
+    const existingCatIds = new Set(multiCategoryRules.map(r => r.vehicleCategoryId));
+    const availableCat = categories.find(c => !existingCatIds.has(c._id)) || categories[0];
+    if (!availableCat) {
+      toast.error('All available vehicle categories are already added');
+      return;
+    }
+    const nextPriority = multiCategoryRules.length > 0
+      ? Math.max(...multiCategoryRules.map(r => r.priority || 15)) + 5
+      : 15;
+
+    setMultiCategoryRules(prev => [
+      ...prev,
+      {
+        key: `cat-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+        vehicleCategoryId: availableCat._id,
+        priority: nextPriority,
+        fixedPrice: null,
+        roundTripPrice: null,
+        includedKm: 40,
+        extraKmRate: 18,
+      },
+    ]);
+  };
+
+  const updateCategoryRuleRow = (key: string, field: string, val: any) => {
+    setMultiCategoryRules(prev =>
+      prev.map(r => (r.key === key ? { ...r, [field]: val } : r))
+    );
+  };
+
+  const removeCategoryRuleRow = (key: string) => {
+    setMultiCategoryRules(prev => prev.filter(r => r.key !== key));
+  };
+
+  const handleSwitchVehicleMode = (mode: 'SINGLE' | 'MULTI') => {
+    setVehicleMode(mode);
+    if (mode === 'MULTI' && multiCategoryRules.length === 0 && categories.length > 0) {
+      const baseP = form.getFieldValue('fixedPrice') || 800;
+      autoFillAllCategories(baseP);
+    }
+  };
+
   // Open modal for Create
   const handleOpenCreate = () => {
     setEditingRule(null);
+    setVehicleMode('SINGLE');
+    setMultiCategoryRules([]);
     form.resetFields();
     form.setFieldsValue({
       ruleType: 'FIXED',
@@ -204,6 +280,8 @@ export function PricingRulesPage() {
   // Open modal for Edit
   const handleOpenEdit = (rule: PricingRuleItem) => {
     setEditingRule(rule);
+    setVehicleMode('SINGLE');
+    setMultiCategoryRules([]);
     form.resetFields();
     form.setFieldsValue({
       name: rule.name,
@@ -235,6 +313,8 @@ export function PricingRulesPage() {
   // Duplicate / Clone a Rule
   const handleDuplicate = (rule: PricingRuleItem) => {
     setEditingRule(null);
+    setVehicleMode('SINGLE');
+    setMultiCategoryRules([]);
     form.resetFields();
     form.setFieldsValue({
       name: `${rule.name} (Copy)`,
@@ -267,6 +347,40 @@ export function PricingRulesPage() {
   const handleFormSubmit = async () => {
     try {
       const values = await form.validateFields();
+
+      // Handle multi-category creation
+      if (!editingRule && watchedRuleType === 'FIXED' && vehicleMode === 'MULTI') {
+        if (multiCategoryRules.length === 0) {
+          toast.error('Please configure at least one vehicle category or switch back to single category mode');
+          return;
+        }
+
+        for (const r of multiCategoryRules) {
+          if (!r.vehicleCategoryId) {
+            toast.error('Please select a valid vehicle category for each row in the matrix');
+            return;
+          }
+          if (r.fixedPrice === null || r.fixedPrice === undefined || r.fixedPrice < 0) {
+            const catName = categories.find(c => c._id === r.vehicleCategoryId)?.name || 'Category';
+            toast.error(`Please enter a valid one-way fixed fare for ${catName}`);
+            return;
+          }
+        }
+
+        createOrUpdateMutation.mutate({
+          ...values,
+          vehicleCategoryRules: multiCategoryRules.map(r => ({
+            vehicleCategoryId: r.vehicleCategoryId,
+            priority: r.priority,
+            fixedPrice: r.fixedPrice,
+            roundTripPrice: r.roundTripPrice,
+            includedKm: r.includedKm,
+            extraKmRate: r.extraKmRate,
+          })),
+        });
+        return;
+      }
+
       createOrUpdateMutation.mutate(values);
     } catch {
       // Form validation error
@@ -835,7 +949,7 @@ export function PricingRulesPage() {
         onOk={handleFormSubmit}
         confirmLoading={createOrUpdateMutation.isPending}
         okText={editingRule ? 'Save Changes' : 'Create Route Package'}
-        width={760}
+        width={880}
         destroyOnHidden
       >
         <Form form={form} layout="vertical" className="mt-4 space-y-4">
@@ -925,12 +1039,26 @@ export function PricingRulesPage() {
 
           {/* Section 2: Applicable Vehicle & Mode */}
           <div className="bg-slate-50 dark:bg-slate-950 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-3">
-            <span className="text-xs font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
-              <Car size={13} className="text-blue-500" /> 2. Vehicle & Priority Rule
-            </span>
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
+                <Car size={13} className="text-blue-500" /> 2. Vehicle & Priority Rule
+              </span>
+              {!editingRule && watchedRuleType === 'FIXED' && (
+                <Segmented
+                  size="small"
+                  value={vehicleMode}
+                  onChange={val => handleSwitchVehicleMode(val as 'SINGLE' | 'MULTI')}
+                  options={[
+                    { label: 'Single Vehicle Category', value: 'SINGLE' },
+                    { label: '✨ Multiple Vehicle & Priority Rules', value: 'MULTI' },
+                  ]}
+                  className="bg-slate-200/80 dark:bg-slate-800"
+                />
+              )}
+            </div>
 
             <Row gutter={16}>
-              <Col span={8}>
+              <Col span={vehicleMode === 'MULTI' ? 24 : 8}>
                 <Form.Item name="ruleType" label="Pricing Mode" rules={[{ required: true }]}>
                   <Select
                     options={[
@@ -941,25 +1069,156 @@ export function PricingRulesPage() {
                 </Form.Item>
               </Col>
 
-              <Col span={8}>
-                <Form.Item name="vehicleCategoryId" label="Vehicle Category">
-                  <Select
-                    placeholder="All Vehicles (Universal)"
-                    allowClear
-                    options={[
-                      { value: '', label: 'All Vehicles (Universal)' },
-                      ...categories.map(c => ({ value: c._id, label: `${c.name} (${c.code})` })),
-                    ]}
-                  />
-                </Form.Item>
-              </Col>
+              {vehicleMode === 'SINGLE' && (
+                <>
+                  <Col span={8}>
+                    <Form.Item name="vehicleCategoryId" label="Vehicle Category">
+                      <Select
+                        placeholder="All Vehicles (Universal)"
+                        allowClear
+                        options={[
+                          { value: '', label: 'All Vehicles (Universal)' },
+                          ...categories.map(c => ({ value: c._id, label: `${c.name} (${c.code})` })),
+                        ]}
+                      />
+                    </Form.Item>
+                  </Col>
 
-              <Col span={8}>
-                <Form.Item name="priority" label="Priority (1-100)" tooltip="Lower number takes precedence if multiple rules match">
-                  <InputNumber min={1} max={100} style={{ width: '100%' }} />
-                </Form.Item>
-              </Col>
+                  <Col span={8}>
+                    <Form.Item name="priority" label="Priority (1-100)" tooltip="Lower number takes precedence if multiple rules match">
+                      <InputNumber min={1} max={100} style={{ width: '100%' }} />
+                    </Form.Item>
+                  </Col>
+                </>
+              )}
             </Row>
+
+            {/* Multiple Vehicle Categories & Priority Rules Matrix */}
+            {!editingRule && watchedRuleType === 'FIXED' && vehicleMode === 'MULTI' && (
+              <div className="mt-2 space-y-3 pt-3 border-t border-slate-200 dark:border-slate-800">
+                <div className="flex items-center justify-between flex-wrap gap-2 text-xs">
+                  <span className="text-slate-600 dark:text-slate-400 font-medium">
+                    Set custom flat fares and priority rules per vehicle category for this route:
+                  </span>
+                  <Space size={8}>
+                    <Button
+                      size="small"
+                      icon={<Sparkles size={12} className="text-amber-500" />}
+                      onClick={() => autoFillAllCategories(form.getFieldValue('fixedPrice') || 800)}
+                    >
+                      Auto-Fill All Categories
+                    </Button>
+                    <Button
+                      size="small"
+                      type="dashed"
+                      icon={<Plus size={12} />}
+                      onClick={addCategoryRuleRow}
+                    >
+                      Add Category Row
+                    </Button>
+                  </Space>
+                </div>
+
+                <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden bg-white dark:bg-slate-900">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs text-left">
+                      <thead className="bg-slate-100 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 font-semibold border-b border-slate-200 dark:border-slate-800">
+                        <tr>
+                          <th className="p-2.5 min-w-[170px]">Vehicle Category</th>
+                          <th className="p-2.5 w-24">Priority *</th>
+                          <th className="p-2.5 w-36">One-Way Fare (₹) *</th>
+                          <th className="p-2.5 w-36">Round-Trip Fare (₹)</th>
+                          <th className="p-2.5 w-28">Included KM</th>
+                          <th className="p-2.5 w-28">Extra ₹/KM</th>
+                          <th className="p-2.5 w-10 text-center"></th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                        {multiCategoryRules.map((row) => (
+                          <tr key={row.key} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/40 transition-colors">
+                            <td className="p-2">
+                              <Select
+                                value={row.vehicleCategoryId}
+                                onChange={v => updateCategoryRuleRow(row.key, 'vehicleCategoryId', v)}
+                                style={{ width: '100%' }}
+                                options={categories.map(c => ({
+                                  value: c._id,
+                                  label: `${c.name} (${c.code || 'Cab'})`,
+                                }))}
+                              />
+                            </td>
+                            <td className="p-2">
+                              <Tooltip title="Evaluation priority (1-100). Lower number = higher precedence.">
+                                <InputNumber
+                                  min={1}
+                                  max={100}
+                                  value={row.priority}
+                                  onChange={v => updateCategoryRuleRow(row.key, 'priority', v || 15)}
+                                  style={{ width: '100%' }}
+                                />
+                              </Tooltip>
+                            </td>
+                            <td className="p-2">
+                              <InputNumber
+                                prefix="₹"
+                                min={0}
+                                step={50}
+                                placeholder="e.g. 800"
+                                value={row.fixedPrice}
+                                onChange={v => updateCategoryRuleRow(row.key, 'fixedPrice', v)}
+                                style={{ width: '100%' }}
+                              />
+                            </td>
+                            <td className="p-2">
+                              <InputNumber
+                                prefix="₹"
+                                min={0}
+                                step={50}
+                                placeholder="e.g. 1400"
+                                value={row.roundTripPrice}
+                                onChange={v => updateCategoryRuleRow(row.key, 'roundTripPrice', v)}
+                                style={{ width: '100%' }}
+                              />
+                            </td>
+                            <td className="p-2">
+                              <InputNumber
+                                min={0}
+                                placeholder="40"
+                                addonAfter="KM"
+                                value={row.includedKm}
+                                onChange={v => updateCategoryRuleRow(row.key, 'includedKm', v)}
+                                style={{ width: '100%' }}
+                              />
+                            </td>
+                            <td className="p-2">
+                              <InputNumber
+                                prefix="₹"
+                                min={0}
+                                placeholder="18"
+                                addonAfter="/km"
+                                value={row.extraKmRate}
+                                onChange={v => updateCategoryRuleRow(row.key, 'extraKmRate', v)}
+                                style={{ width: '100%' }}
+                              />
+                            </td>
+                            <td className="p-2 text-center">
+                              <Button
+                                type="text"
+                                danger
+                                size="small"
+                                icon={<Trash2 size={13} />}
+                                onClick={() => removeCategoryRuleRow(row.key)}
+                                disabled={multiCategoryRules.length <= 1}
+                              />
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Section 3: Pricing Structure & Extended Business Logic */}
@@ -970,62 +1229,70 @@ export function PricingRulesPage() {
 
             {watchedRuleType === 'FIXED' ? (
               <>
-                <Row gutter={16}>
-                  <Col span={12}>
-                    <Form.Item
-                      name="fixedPrice"
-                      label="One-Way Flat Fare (₹)"
-                      rules={[{ required: true, message: 'Enter fixed fare amount' }]}
-                      tooltip="Total flat rate charged for single trip"
-                    >
-                      <InputNumber
-                        prefix="₹"
-                        min={0}
-                        step={50}
-                        placeholder="e.g. 800"
-                        style={{ width: '100%' }}
-                      />
-                    </Form.Item>
-                  </Col>
+                {vehicleMode === 'SINGLE' ? (
+                  <>
+                    <Row gutter={16}>
+                      <Col span={12}>
+                        <Form.Item
+                          name="fixedPrice"
+                          label="One-Way Flat Fare (₹)"
+                          rules={[{ required: true, message: 'Enter fixed fare amount' }]}
+                          tooltip="Total flat rate charged for single trip"
+                        >
+                          <InputNumber
+                            prefix="₹"
+                            min={0}
+                            step={50}
+                            placeholder="e.g. 800"
+                            style={{ width: '100%' }}
+                          />
+                        </Form.Item>
+                      </Col>
 
-                  <Col span={12}>
-                    <Form.Item
-                      name="roundTripPrice"
-                      label="Round-Trip Package Fare (Optional ₹)"
-                      tooltip="Special flat rate for return trips. If left empty, a standard discounted 1.8x package will apply."
-                    >
-                      <InputNumber
-                        prefix="₹"
-                        min={0}
-                        step={50}
-                        placeholder="e.g. 1400"
-                        style={{ width: '100%' }}
-                      />
-                    </Form.Item>
-                  </Col>
-                </Row>
+                      <Col span={12}>
+                        <Form.Item
+                          name="roundTripPrice"
+                          label="Round-Trip Package Fare (Optional ₹)"
+                          tooltip="Special flat rate for return trips. If left empty, a standard discounted 1.8x package will apply."
+                        >
+                          <InputNumber
+                            prefix="₹"
+                            min={0}
+                            step={50}
+                            placeholder="e.g. 1400"
+                            style={{ width: '100%' }}
+                          />
+                        </Form.Item>
+                      </Col>
+                    </Row>
 
-                <Row gutter={16}>
-                  <Col span={12}>
-                    <Form.Item
-                      name="includedKm"
-                      label="Included Distance Package (KM)"
-                      tooltip="Kilometers included in this fixed tariff. Beyond this, extra km rate applies."
-                    >
-                      <InputNumber min={0} placeholder="e.g. 35" addonAfter="KM" style={{ width: '100%' }} />
-                    </Form.Item>
-                  </Col>
+                    <Row gutter={16}>
+                      <Col span={12}>
+                        <Form.Item
+                          name="includedKm"
+                          label="Included Distance Package (KM)"
+                          tooltip="Kilometers included in this fixed tariff. Beyond this, extra km rate applies."
+                        >
+                          <InputNumber min={0} placeholder="e.g. 35" addonAfter="KM" style={{ width: '100%' }} />
+                        </Form.Item>
+                      </Col>
 
-                  <Col span={12}>
-                    <Form.Item
-                      name="extraKmRate"
-                      label="Extra KM Rate (₹/km)"
-                      tooltip="Charged per km beyond the included package distance"
-                    >
-                      <InputNumber prefix="₹" min={0} placeholder="e.g. 18" addonAfter="/km" style={{ width: '100%' }} />
-                    </Form.Item>
-                  </Col>
-                </Row>
+                      <Col span={12}>
+                        <Form.Item
+                          name="extraKmRate"
+                          label="Extra KM Rate (₹/km)"
+                          tooltip="Charged per km beyond the included package distance"
+                        >
+                          <InputNumber prefix="₹" min={0} placeholder="e.g. 18" addonAfter="/km" style={{ width: '100%' }} />
+                        </Form.Item>
+                      </Col>
+                    </Row>
+                  </>
+                ) : (
+                  <div className="p-3 bg-blue-50/70 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-xl text-xs text-blue-800 dark:text-blue-300">
+                    ℹ️ Specific flat fares and priority rules have been defined in the vehicle matrix above for each category. Common route concessions and inclusions below will apply across all configured vehicles.
+                  </div>
+                )}
 
                 {/* Extended Business Logic Perks & Policies */}
                 <div className="p-3 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 space-y-3">
@@ -1114,24 +1381,59 @@ export function PricingRulesPage() {
           </div>
 
           {/* Live Preview Card */}
-          {watchedRuleType === 'FIXED' && watchedFixedPrice && (
-            <div className="p-3.5 bg-gradient-to-r from-emerald-500/10 to-teal-500/10 border border-emerald-500/30 rounded-2xl flex items-center justify-between">
-              <div className="space-y-0.5">
-                <span className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider flex items-center gap-1">
-                  <Sparkles size={11} /> Live Customer Tariff Preview
-                </span>
-                <div className="text-sm font-bold text-slate-800 dark:text-slate-200">
-                  One-Way: ₹{watchedFixedPrice} {watchedRoundTripPrice ? `• Round Trip: ₹${watchedRoundTripPrice}` : ''}
+          {watchedRuleType === 'FIXED' && (
+            <>
+              {vehicleMode === 'SINGLE' && watchedFixedPrice && (
+                <div className="p-3.5 bg-gradient-to-r from-emerald-500/10 to-teal-500/10 border border-emerald-500/30 rounded-2xl flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <span className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider flex items-center gap-1">
+                      <Sparkles size={11} /> Live Customer Tariff Preview
+                    </span>
+                    <div className="text-sm font-bold text-slate-800 dark:text-slate-200">
+                      One-Way: ₹{watchedFixedPrice} {watchedRoundTripPrice ? `• Round Trip: ₹${watchedRoundTripPrice}` : ''}
+                    </div>
+                    <div className="text-[11px] text-slate-500 flex items-center gap-2">
+                      {watchedTollIncluded && <span>✓ Tolls Included</span>}
+                      {watchedFreeWaiting > 0 && <span>✓ {watchedFreeWaiting}m Free Waiting</span>}
+                    </div>
+                  </div>
+                  <span className="text-xs font-bold text-emerald-600 bg-white dark:bg-slate-900 px-2.5 py-1 rounded-xl shadow-xs border border-emerald-200 dark:border-emerald-800">
+                    Guaranteed Fixed Fare
+                  </span>
                 </div>
-                <div className="text-[11px] text-slate-500 flex items-center gap-2">
-                  {watchedTollIncluded && <span>✓ Tolls Included</span>}
-                  {watchedFreeWaiting > 0 && <span>✓ {watchedFreeWaiting}m Free Waiting</span>}
+              )}
+
+              {vehicleMode === 'MULTI' && multiCategoryRules.some(r => r.fixedPrice) && (
+                <div className="p-3.5 bg-gradient-to-r from-emerald-500/10 to-teal-500/10 border border-emerald-500/30 rounded-2xl space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider flex items-center gap-1">
+                      <Sparkles size={11} /> Multi-Vehicle Route Configuration Preview
+                    </span>
+                    <span className="text-xs font-bold text-emerald-600 bg-white dark:bg-slate-900 px-2 py-0.5 rounded-lg border border-emerald-200 dark:border-emerald-800">
+                      {multiCategoryRules.filter(r => r.fixedPrice).length} Categories Configured
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {multiCategoryRules.filter(r => r.fixedPrice).map(r => {
+                      const cat = categories.find(c => c._id === r.vehicleCategoryId);
+                      return (
+                        <div
+                          key={r.key}
+                          className="bg-white dark:bg-slate-900 px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 text-xs shadow-xs"
+                        >
+                          <span className="font-semibold text-slate-800 dark:text-slate-200">{cat?.name || 'Cab'}:</span>{' '}
+                          <span className="font-bold text-emerald-600">₹{r.fixedPrice}</span>
+                          {r.roundTripPrice ? <span className="text-slate-400"> (RT: ₹{r.roundTripPrice})</span> : ''}{' '}
+                          <span className="font-mono text-[10px] text-blue-600 bg-blue-50 dark:bg-blue-950 px-1 py-0.5 rounded ml-1">
+                            P-{r.priority}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
-              <span className="text-xs font-bold text-emerald-600 bg-white dark:bg-slate-900 px-2.5 py-1 rounded-xl shadow-xs border border-emerald-200 dark:border-emerald-800">
-                Guaranteed Fixed Fare
-              </span>
-            </div>
+              )}
+            </>
           )}
         </Form>
       </Modal>
@@ -1145,7 +1447,7 @@ export function PricingRulesPage() {
           </div>
         }
         placement="right"
-        width={480}
+        size={480}
         onClose={() => setCalcDrawerOpen(false)}
         open={calcDrawerOpen}
       >

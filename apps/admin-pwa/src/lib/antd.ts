@@ -42,4 +42,8 @@ export const antNotification = {
     _notification?.success(opts),
   error: (opts: Parameters<ReturnType<typeof App.useApp>['notification']['error']>[0]) =>
     _notification?.error(opts),
+  warning: (opts: Parameters<ReturnType<typeof App.useApp>['notification']['warning']>[0]) =>
+    _notification?.warning(opts),
+  info: (opts: Parameters<ReturnType<typeof App.useApp>['notification']['info']>[0]) =>
+    _notification?.info(opts),
 };

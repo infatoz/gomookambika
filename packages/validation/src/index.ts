@@ -7,6 +7,7 @@ import {
   DocumentType,
   AssignmentType,
   Status,
+  DriverStatus,
 } from '@gomookambika/types';
 
 // ─── COMMON SCHEMAS ──────────────────────────────────────────
@@ -30,11 +31,23 @@ export const paginationSchema = z.object({
 
 export const mongoIdSchema = z.string().regex(/^[0-9a-fA-F]{24}$/, 'Invalid ID');
 
+export const dateInputSchema = z
+  .union([z.string(), z.date()])
+  .refine(
+    (val) => {
+      if (!val || val === '') return true;
+      const d = new Date(val);
+      return !isNaN(d.getTime());
+    },
+    { message: 'Invalid date or datetime format' }
+  );
+
 // ─── AUTH SCHEMAS ────────────────────────────────────────────
 
 export const requestOTPSchema = z.object({
   phone: phoneSchema,
   purpose: z.enum(['LOGIN', 'TRIP_START', 'VERIFY_PHONE']).default('LOGIN'),
+  role: z.enum(['CUSTOMER', 'DRIVER', 'ADMIN']).optional(),
 });
 
 export const verifyOTPSchema = z.object({
@@ -64,7 +77,7 @@ export const updateProfileSchema = z.object({
 export const createDriverSchema = z.object({
   name: z.string().min(2, 'Name too short').max(100, 'Name too long'),
   phone: z.string().min(10, 'Phone must be at least 10 digits'),
-  email: z.string().email().optional().or(z.literal('')),
+  email: z.string().email().optional().or(z.literal('')).or(z.null()),
   address: z
     .object({
       line1: z.string().optional().default('Kollur'),
@@ -75,12 +88,37 @@ export const createDriverSchema = z.object({
       country: z.string().default('India'),
     })
     .optional(),
-  licenseNumber: z.string().min(5).max(25),
-  licenseExpiry: z.string().datetime({ offset: true }),
-  joiningDate: z.string().datetime({ offset: true }).optional(),
+  licenseNumber: z.string().min(3).max(30),
+  licenseExpiry: dateInputSchema,
+  joiningDate: dateInputSchema.optional().or(z.literal('')).or(z.null()),
+  status: z.union([z.nativeEnum(DriverStatus), z.literal('INACTIVE')]).optional(),
+  upiId: z.string().optional().or(z.literal('')).or(z.null()),
+  upiBeneficiaryName: z.string().optional().or(z.literal('')).or(z.null()),
+  assignedVehicleId: z.string().optional().or(z.literal('')).or(z.null()),
 });
 
-export const updateDriverSchema = createDriverSchema.partial().omit({ phone: true });
+export const updateDriverSchema = z.object({
+  name: z.string().min(2, 'Name too short').max(100, 'Name too long').optional(),
+  phone: z.string().min(10, 'Phone must be at least 10 digits').optional(),
+  email: z.string().email().optional().or(z.literal('')).or(z.null()),
+  address: z
+    .object({
+      line1: z.string().optional(),
+      line2: z.string().optional(),
+      city: z.string().optional(),
+      state: z.string().optional(),
+      pincode: z.string().optional(),
+      country: z.string().optional(),
+    })
+    .optional(),
+  licenseNumber: z.string().min(3).max(30).optional().or(z.literal('')),
+  licenseExpiry: dateInputSchema.optional().or(z.literal('')).or(z.null()),
+  joiningDate: dateInputSchema.optional().or(z.literal('')).or(z.null()),
+  status: z.union([z.nativeEnum(DriverStatus), z.literal('INACTIVE')]).optional(),
+  upiId: z.string().optional().or(z.literal('')).or(z.null()),
+  upiBeneficiaryName: z.string().optional().or(z.literal('')).or(z.null()),
+  assignedVehicleId: z.string().optional().or(z.literal('')).or(z.null()),
+});
 
 // ─── VEHICLE CATEGORY SCHEMAS ────────────────────────────────
 
@@ -152,8 +190,8 @@ export const createVehicleSchema = z.object({
   luggageCapacity: z.number().int().min(0).max(20).optional(),
   ac: z.boolean().optional(),
   ownerName: z.string().min(1).max(100).optional(),
-  ownerPhone: phoneSchema.optional(),
-  assignedDriverId: mongoIdSchema.optional(),
+  ownerPhone: z.union([phoneSchema, z.literal(''), z.null()]).optional(),
+  assignedDriverId: z.union([mongoIdSchema, z.literal(''), z.null()]).optional(),
   status: z.string().optional(),
 });
 
@@ -178,12 +216,19 @@ export const createLocationSchema = z.object({
     pincode: z.string().regex(/^\d{6}$/).optional(),
     country: z.string().default('India'),
   }),
-  latitude: z.number().min(-90).max(90).optional(),
-  longitude: z.number().min(-180).max(180).optional(),
+  latitude: z.union([z.number(), z.string().transform(Number)]).optional(),
+  longitude: z.union([z.number(), z.string().transform(Number)]).optional(),
+  geoPoint: z
+    .object({
+      type: z.string().default('Point'),
+      coordinates: z.array(z.number()),
+    })
+    .optional(),
   queueRadius: z.number().min(10).max(5000).default(100),
   queueEnabled: z.boolean().default(false),
   bookingEnabled: z.boolean().default(true),
   qrEnabled: z.boolean().default(false),
+  status: z.string().optional(),
   operatingHours: z
     .array(
       z.object({
@@ -196,7 +241,7 @@ export const createLocationSchema = z.object({
     .optional(),
 });
 
-export const updateLocationSchema = createLocationSchema.partial().omit({ code: true });
+export const updateLocationSchema = createLocationSchema.partial();
 
 // ─── TAXI STAND SCHEMAS ──────────────────────────────────────
 

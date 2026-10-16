@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Card,
@@ -16,6 +17,7 @@ import {
   Tag,
   Divider,
   Alert,
+  Radio,
 } from 'antd';
 import {
   ShopOutlined,
@@ -32,6 +34,10 @@ import {
   EnvironmentOutlined,
   PhoneOutlined,
   MailOutlined,
+  DollarCircleOutlined,
+  PercentageOutlined,
+  CalculatorOutlined,
+  FileTextOutlined,
 } from '@ant-design/icons';
 import apiClient from '@/lib/apiClient';
 import { useAuthStore } from '@/store/authStore';
@@ -71,6 +77,17 @@ interface SystemSettingsData {
   emergencySosContact: string;
   lostAndFoundHelpline: string;
   nightTravelAdvisory: string;
+
+  // Tax Settings (GST / Legal)
+  taxEnabled: boolean;
+  taxPercentage: number;
+  taxName: string;
+
+  // Platform Fees (Default: Disabled)
+  platformFeeEnabled: boolean;
+  platformFeeType: 'FIXED' | 'PERCENTAGE';
+  platformFeeAmount: number;
+  platformFeeName: string;
 }
 
 const DEFAULT_SETTINGS: SystemSettingsData = {
@@ -99,15 +116,49 @@ const DEFAULT_SETTINGS: SystemSettingsData = {
   emergencySosContact: '+91 94812 00000',
   lostAndFoundHelpline: '+91 94812 00001',
   nightTravelAdvisory: 'Certified hill-route drivers with 24x7 control room tracking on all ghat and night journeys.',
+
+  // Tax Settings
+  taxEnabled: true,
+  taxPercentage: 5,
+  taxName: 'GST (5%)',
+
+  // Platform Fees (Default: Disabled)
+  platformFeeEnabled: false,
+  platformFeeType: 'FIXED',
+  platformFeeAmount: 15,
+  platformFeeName: 'Platform Convenience Fee',
 };
 
 export function SettingsPage() {
   const qc = useQueryClient();
   const { user } = useAuthStore();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tabParam = searchParams.get('tab');
   const [form] = Form.useForm();
-  const [activeTab, setActiveTab] = useState('association');
+  const [activeTab, setActiveTab] = useState(tabParam || 'association');
   const [hasChanges, setHasChanges] = useState(false);
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
+
+  // Sync tab with URL search parameter
+  useEffect(() => {
+    if (tabParam && tabParam !== activeTab) {
+      setActiveTab(tabParam);
+    }
+  }, [tabParam, activeTab]);
+
+  const handleTabChange = (key: string) => {
+    setActiveTab(key);
+    setSearchParams({ tab: key });
+  };
+
+  // Live watch form values for interactive tax & platform fee calculation preview
+  const watchedTaxEnabled = Form.useWatch('taxEnabled', form);
+  const watchedTaxPercentage = Form.useWatch('taxPercentage', form);
+  const watchedTaxName = Form.useWatch('taxName', form);
+  const watchedPlatformFeeEnabled = Form.useWatch('platformFeeEnabled', form);
+  const watchedPlatformFeeType = Form.useWatch('platformFeeType', form);
+  const watchedPlatformFeeAmount = Form.useWatch('platformFeeAmount', form);
+  const watchedPlatformFeeName = Form.useWatch('platformFeeName', form);
 
   // Password change state
   const [passwordForm] = Form.useForm();
@@ -242,7 +293,7 @@ export function SettingsPage() {
         <Alert
           type="warning"
           showIcon
-          message="Read-Only Mode"
+          title="Read-Only Mode"
           description="Only Super Administrators and Association Admins can modify operational settings."
           className="rounded-xl border-amber-200"
         />
@@ -284,7 +335,7 @@ export function SettingsPage() {
         >
           <Tabs
             activeKey={activeTab}
-            onChange={setActiveTab}
+            onChange={handleTabChange}
             size="large"
             items={[
               /* ─── TAB 1: Association Profile ─── */
@@ -757,7 +808,327 @@ export function SettingsPage() {
                 ),
               },
 
-              /* ─── TAB 5: Administrator Profile & Security ─── */
+              /* ─── TAB: Tax & Platform Fees ─── */
+              {
+                key: 'tax',
+                label: (
+                  <span className="flex items-center gap-2 font-medium">
+                    <DollarCircleOutlined />
+                    <span>Tax & Platform Fees</span>
+                  </span>
+                ),
+                children: (
+                  <div className="py-4 space-y-6">
+                    <div>
+                      <h3 className="text-base font-bold text-slate-900">
+                        Tax (GST) & Platform Convenience Fee Settings
+                      </h3>
+                      <p className="text-xs text-slate-500">
+                        Configure GST rates and platform convenience charges. By default, platform fees are disabled until enabled by the association.
+                      </p>
+                    </div>
+
+                    <Row gutter={[24, 24]}>
+                      {/* CARD 1: Tax / GST Settings */}
+                      <Col xs={24} lg={12}>
+                        <Card
+                          className="h-full border border-slate-200 shadow-sm rounded-2xl bg-white"
+                          title={
+                            <div className="flex items-center justify-between py-1">
+                              <span className="flex items-center gap-2 text-slate-900 font-bold text-sm">
+                                <PercentageOutlined className="text-indigo-600" />
+                                <span>Tax (GST) Configuration</span>
+                              </span>
+                              <Tag color={watchedTaxEnabled ? 'success' : 'default'} className="font-bold">
+                                {watchedTaxEnabled ? 'Tax Enabled' : 'Tax Disabled (0%)'}
+                              </Tag>
+                            </div>
+                          }
+                        >
+                          <div className="space-y-4">
+                            <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between">
+                              <div>
+                                <div className="font-semibold text-slate-900 text-sm">
+                                  Enable Ride Fare Tax (GST)
+                                </div>
+                                <div className="text-xs text-slate-500 mt-0.5">
+                                  Calculate GST on trip fares and display on passenger invoice & driver receipt.
+                                </div>
+                              </div>
+                              <Form.Item name="taxEnabled" valuePropName="checked" noStyle>
+                                <Switch />
+                              </Form.Item>
+                            </div>
+
+                            {watchedTaxEnabled ? (
+                              <div className="space-y-4 pt-1">
+                                <Form.Item
+                                  name="taxName"
+                                  label="Tax Display Label / Name"
+                                  help="The title shown to customers on the booking screen and e-ticket."
+                                  rules={[{ required: true, message: 'Tax name is required' }]}
+                                >
+                                  <Input placeholder="GST (5%)" prefix={<FileTextOutlined className="text-slate-400" />} />
+                                </Form.Item>
+
+                                <Form.Item
+                                  name="taxPercentage"
+                                  label="Tax Percentage (%)"
+                                  help="Applicable statutory tax rate (e.g. 5% for transport service GST)."
+                                  rules={[{ required: true, message: 'Tax percentage is required' }]}
+                                >
+                                  <InputNumber
+                                    min={0}
+                                    max={30}
+                                    step={0.5}
+                                    suffix="%"
+                                    style={{ width: '100%' }}
+                                    placeholder="5"
+                                  />
+                                </Form.Item>
+
+                                <Alert
+                                  type="info"
+                                  showIcon
+                                  className="text-xs rounded-xl"
+                                  title={
+                                    <span>
+                                      Tax is currently active at <b>{watchedTaxPercentage ?? 5}%</b>. A ₹500 ride subtotal will have <b>₹{((500 * (watchedTaxPercentage ?? 5)) / 100).toFixed(2)}</b> GST applied.
+                                    </span>
+                                  }
+                                />
+                              </div>
+                            ) : (
+                              <Alert
+                                type="warning"
+                                showIcon
+                                className="text-xs rounded-xl"
+                                title="Tax calculation is currently turned OFF. All fares will have ₹0 tax and only base & distance tariffs will apply."
+                              />
+                            )}
+                          </div>
+                        </Card>
+                      </Col>
+
+                      {/* CARD 2: Platform Convenience Fee Settings */}
+                      <Col xs={24} lg={12}>
+                        <Card
+                          className="h-full border border-slate-200 shadow-sm rounded-2xl bg-white"
+                          title={
+                            <div className="flex items-center justify-between py-1">
+                              <span className="flex items-center gap-2 text-slate-900 font-bold text-sm">
+                                <DollarCircleOutlined className="text-emerald-600" />
+                                <span>Platform Convenience Fee</span>
+                              </span>
+                              <Tag color={watchedPlatformFeeEnabled ? 'success' : 'default'} className="font-bold">
+                                {watchedPlatformFeeEnabled ? 'Platform Fee Active' : 'Default: Disabled'}
+                              </Tag>
+                            </div>
+                          }
+                        >
+                          <div className="space-y-4">
+                            <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between">
+                              <div>
+                                <div className="font-semibold text-slate-900 text-sm">
+                                  Enable Platform Fee
+                                </div>
+                                <div className="text-xs text-slate-500 mt-0.5">
+                                  Default is disabled. When enabled, this convenience charge will appear on the customer app.
+                                </div>
+                              </div>
+                              <Form.Item name="platformFeeEnabled" valuePropName="checked" noStyle>
+                                <Switch />
+                              </Form.Item>
+                            </div>
+
+                            {watchedPlatformFeeEnabled ? (
+                              <div className="space-y-4 pt-1">
+                                <Form.Item
+                                  name="platformFeeName"
+                                  label="Fee Display Label"
+                                  help="Description shown on ride selector, price breakdown, and digital receipts."
+                                  rules={[{ required: true, message: 'Fee label is required' }]}
+                                >
+                                  <Input placeholder="Platform Convenience Fee" />
+                                </Form.Item>
+
+                                <Form.Item
+                                  name="platformFeeType"
+                                  label="Calculation Model"
+                                  help="Choose whether to charge a fixed flat rupee amount per booking or a percentage of fare."
+                                >
+                                  <Radio.Group buttonStyle="solid" className="w-full grid grid-cols-2 text-center">
+                                    <Radio.Button value="FIXED" className="text-center font-medium">
+                                      Flat Rupee (₹)
+                                    </Radio.Button>
+                                    <Radio.Button value="PERCENTAGE" className="text-center font-medium">
+                                      Percentage (%)
+                                    </Radio.Button>
+                                  </Radio.Group>
+                                </Form.Item>
+
+                                <Form.Item
+                                  name="platformFeeAmount"
+                                  label={watchedPlatformFeeType === 'PERCENTAGE' ? 'Platform Fee Percentage (%)' : 'Platform Fee Amount (₹)'}
+                                  help={
+                                    watchedPlatformFeeType === 'PERCENTAGE'
+                                      ? 'Percentage applied on ride subtotal.'
+                                      : 'Flat convenience fee added to each completed booking.'
+                                  }
+                                  rules={[{ required: true, message: 'Fee amount is required' }]}
+                                >
+                                  <InputNumber
+                                    min={0}
+                                    max={watchedPlatformFeeType === 'PERCENTAGE' ? 25 : 500}
+                                    step={watchedPlatformFeeType === 'PERCENTAGE' ? 0.5 : 1}
+                                    prefix={watchedPlatformFeeType === 'PERCENTAGE' ? undefined : '₹'}
+                                    suffix={watchedPlatformFeeType === 'PERCENTAGE' ? '%' : 'INR'}
+                                    style={{ width: '100%' }}
+                                    placeholder={watchedPlatformFeeType === 'PERCENTAGE' ? '2.5' : '15'}
+                                  />
+                                </Form.Item>
+
+                                <Alert
+                                  type="success"
+                                  showIcon
+                                  className="text-xs rounded-xl"
+                                  title={
+                                    <span>
+                                      Platform fee is <b>ACTIVE</b>. Passengers will see a{' '}
+                                      <b>
+                                        {watchedPlatformFeeType === 'PERCENTAGE'
+                                          ? `${watchedPlatformFeeAmount || 2}% percentage charge`
+                                          : `₹${watchedPlatformFeeAmount || 15} flat fee`}
+                                      </b>{' '}
+                                      in the ride selection sheet and booking receipt.
+                                    </span>
+                                  }
+                                />
+                              </div>
+                            ) : (
+                              <Alert
+                                type="info"
+                                showIcon
+                                className="text-xs rounded-xl"
+                                title="Platform fee is DISABLED by default. No convenience charges are added to customer bookings or deducted from drivers."
+                              />
+                            )}
+                          </div>
+                        </Card>
+                      </Col>
+
+                      {/* CARD 3: Live App Pricing Preview / Simulation */}
+                      <Col xs={24}>
+                        <Card
+                          className="border border-indigo-100 shadow-sm rounded-2xl bg-gradient-to-br from-indigo-50/40 via-white to-slate-50"
+                          title={
+                            <div className="flex items-center gap-2 text-indigo-950 font-bold text-sm">
+                              <CalculatorOutlined className="text-indigo-600" />
+                              <span>Live App Fare Breakdown Preview (How Riders & Drivers See It)</span>
+                            </div>
+                          }
+                        >
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-center">
+                            <div className="md:col-span-2 space-y-2">
+                              <p className="text-xs text-slate-600">
+                                This live calculation demonstrates how a standard <b>20 km ride (Base ₹100 + Distance ₹300 = ₹400 subtotal)</b> will be priced in the customer and driver mobile apps based on your active settings above:
+                              </p>
+
+                              <div className="max-w-md bg-white border border-slate-200 rounded-xl p-4 shadow-sm space-y-2 text-xs">
+                                <div className="flex justify-between text-slate-600">
+                                  <span>Base Fare (Flag-down)</span>
+                                  <span className="font-mono font-medium">₹100.00</span>
+                                </div>
+                                <div className="flex justify-between text-slate-600">
+                                  <span>Distance Fare (20 km @ ₹15/km)</span>
+                                  <span className="font-mono font-medium">₹300.00</span>
+                                </div>
+
+                                {watchedPlatformFeeEnabled ? (
+                                  <div className="flex justify-between text-indigo-700 font-semibold bg-indigo-50/80 px-2 py-1 rounded-lg">
+                                    <span>{watchedPlatformFeeName || 'Platform Convenience Fee'}</span>
+                                    <span className="font-mono">
+                                      +₹
+                                      {(watchedPlatformFeeType === 'PERCENTAGE'
+                                        ? (400 * (watchedPlatformFeeAmount || 2)) / 100
+                                        : (watchedPlatformFeeAmount || 15)
+                                      ).toFixed(2)}
+                                    </span>
+                                  </div>
+                                ) : (
+                                  <div className="flex justify-between text-slate-400 italic text-[11px] px-2 py-0.5">
+                                    <span>Platform Fee</span>
+                                    <span>Disabled (₹0)</span>
+                                  </div>
+                                )}
+
+                                {watchedTaxEnabled ? (
+                                  <div className="flex justify-between text-amber-800 font-semibold bg-amber-50/80 px-2 py-1 rounded-lg">
+                                    <span>{watchedTaxName || 'GST'} ({watchedTaxPercentage ?? 5}%)</span>
+                                    <span className="font-mono">
+                                      +₹
+                                      {(
+                                        ((400 +
+                                          (watchedPlatformFeeEnabled
+                                            ? watchedPlatformFeeType === 'PERCENTAGE'
+                                              ? (400 * (watchedPlatformFeeAmount || 2)) / 100
+                                              : (watchedPlatformFeeAmount || 15)
+                                            : 0)) *
+                                          (watchedTaxPercentage ?? 5)) /
+                                        100
+                                      ).toFixed(2)}
+                                    </span>
+                                  </div>
+                                ) : (
+                                  <div className="flex justify-between text-slate-400 italic text-[11px] px-2 py-0.5">
+                                    <span>Tax (GST)</span>
+                                    <span>Disabled (₹0)</span>
+                                  </div>
+                                )}
+
+                                <div className="pt-2 border-t border-slate-200 flex justify-between font-bold text-sm text-slate-900">
+                                  <span>Total Payable by Passenger</span>
+                                  <span className="text-emerald-600 font-mono text-base">
+                                    ₹
+                                    {Math.round(
+                                      (400 +
+                                        (watchedPlatformFeeEnabled
+                                          ? watchedPlatformFeeType === 'PERCENTAGE'
+                                            ? (400 * (watchedPlatformFeeAmount || 2)) / 100
+                                            : (watchedPlatformFeeAmount || 15)
+                                          : 0)) *
+                                        (1 + (watchedTaxEnabled ? (watchedTaxPercentage ?? 5) / 100 : 0))
+                                    )}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="p-4 bg-indigo-900 text-white rounded-2xl space-y-3">
+                              <div className="text-xs font-bold uppercase tracking-wider text-indigo-300">
+                                Summary Policy
+                              </div>
+                              <ul className="text-xs space-y-2 text-indigo-100 list-disc list-inside">
+                                <li>
+                                  <b>Zero hidden charges:</b> Fares shown to customers always match the driver collection amount.
+                                </li>
+                                <li>
+                                  <b>Platform fee toggle:</b> Instantly turns on or off across all web and mobile apps upon saving.
+                                </li>
+                                <li>
+                                  <b>GST compliant:</b> Rate changes reflect on all printed e-tickets and tax invoices.
+                                </li>
+                              </ul>
+                            </div>
+                          </div>
+                        </Card>
+                      </Col>
+                    </Row>
+                  </div>
+                ),
+              },
+
+              /* ─── TAB 6: Administrator Profile & Security ─── */
               {
                 key: 'profile',
                 label: (

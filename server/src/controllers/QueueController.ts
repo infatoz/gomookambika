@@ -99,7 +99,13 @@ export class QueueController {
             { status: TripStatus.TRIP_COMPLETED }
           );
         }
-      } else {
+        // Ensure finalFare is populated from booking.fareSnapshot if missing
+        if ((!activeTrip.finalFare || !activeTrip.finalFare.total) && activeTrip.bookingId) {
+          const b = activeTrip.bookingId as any;
+          if (b?.fareSnapshot) {
+            activeTrip.finalFare = b.fareSnapshot;
+          }
+        }
         validActiveTrip = activeTrip;
       }
     }

@@ -4,6 +4,8 @@ import { UberBookingPage } from './pages/UberBookingPage';
 import { BookingsListPage } from './pages/BookingsListPage';
 import { ProfilePage } from './pages/ProfilePage';
 import { UberLoginModal } from './components/UberLoginModal';
+import { ToastContainer } from './components/ToastContainer';
+import { toast } from './lib/toast';
 import { Car, Clock, User } from 'lucide-react';
 import { AuthState } from './lib/api';
 
@@ -42,15 +44,25 @@ function App() {
   useEffect(() => {
     const handleUnauthorized = () => {
       setAuth({ token: null, user: null });
+      toast.warning('Session Expired', 'Please log in again to continue.');
     };
     window.addEventListener('auth:unauthorized', handleUnauthorized);
     return () => window.removeEventListener('auth:unauthorized', handleUnauthorized);
   }, []);
 
-  const handleLogin = (token: string, user: { name?: string; phone: string }) => {
+  const handleLogin = (token: string, user: { name?: string; phone: string; email?: string; profilePhoto?: string }) => {
     setAuth({ token, user });
     localStorage.setItem('gm_token', token);
     localStorage.setItem('gm_user', JSON.stringify(user));
+  };
+
+  const handleUpdateUser = (updatedUser: { name?: string; phone?: string; email?: string; profilePhoto?: string }) => {
+    setAuth(prev => {
+      if (!prev.user) return prev;
+      const merged = { ...prev.user, ...updatedUser };
+      localStorage.setItem('gm_user', JSON.stringify(merged));
+      return { ...prev, user: merged };
+    });
   };
 
   const handleLogout = () => {
@@ -58,10 +70,12 @@ function App() {
     localStorage.removeItem('gm_token');
     localStorage.removeItem('gm_user');
     setActiveTab('ride');
+    toast.info('Signed Out', 'You have been logged out of your account.');
   };
 
   return (
     <div className="min-h-screen bg-white text-black flex flex-col font-sans select-none antialiased">
+      <ToastContainer />
       {/* ─── UBER TOP NAVBAR ─── */}
       <UberNavbar
         auth={auth}
@@ -97,6 +111,7 @@ function App() {
             auth={auth}
             onLogout={handleLogout}
             onOpenLogin={() => setGlobalLoginOpen(true)}
+            onUpdateUser={handleUpdateUser}
           />
         )}
       </main>

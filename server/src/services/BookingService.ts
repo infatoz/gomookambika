@@ -285,18 +285,25 @@ export class BookingService {
       await redis.setex(offerKey, timeoutSeconds, booking.id).catch(() => {});
     }
 
+    // Fetch customer details to display to captain
+    const { User } = await import('@/models/User');
+    const customerUser = await User.findById(booking.customerId).select('name phone');
+
     // Build trip offer payload
     const payload: TripOfferPayload = {
       bookingId: booking.id,
+      bookingNumber: booking.bookingNumber,
       tripId: '', // Will be created on accept
       pickupLocation: booking.pickupLocation,
       dropLocation: booking.dropLocation,
       passengers: booking.passengers,
-      distanceKm: booking.fareSnapshot.distanceKm,
-      estimatedFare: booking.fareSnapshot.total,
+      distanceKm: booking.fareSnapshot?.distanceKm || 0,
+      estimatedFare: booking.fareSnapshot?.total || 0,
       vehicleCategory: booking.vehicleCategoryId.toString(),
       scheduledAt: booking.scheduledAt?.toISOString(),
       timeoutSeconds,
+      customerName: customerUser?.name || 'Passenger',
+      customerPhone: customerUser?.phone || '',
     };
 
     // Send offer to driver via socket rooms
@@ -313,6 +320,19 @@ export class BookingService {
         timeoutSeconds,
       });
     }
+
+    // Trigger Web Push Notification to driver device (with action buttons & sound wake-up)
+    import('./PushNotificationService').then(({ pushNotificationService }) => {
+      pushNotificationService
+        .notifyDriverNewTrip(driverId.toString(), {
+          bookingId: booking.id,
+          pickupAddress: booking.pickupLocation?.address,
+          dropAddress: booking.dropLocation?.address,
+          estimatedFare: booking.fareSnapshot?.total || 0,
+          distanceKm: booking.fareSnapshot?.distanceKm,
+        })
+        .catch((err) => logger.warn('Failed to deliver Web Push notification to driver', err));
+    }).catch(() => {});
 
     // Set acceptance timeout
     setTimeout(async () => {
@@ -407,6 +427,7 @@ export class BookingService {
                 startOTPHash,
                 startOTPExpiresAt: new Date(Date.now() + 4 * 60 * 60 * 1000), // 4 hours
                 startOTPVerified: false,
+                finalFare: booking.fareSnapshot,
               },
             ],
             { session }
@@ -465,6 +486,7 @@ export class BookingService {
             startOTPHash,
             startOTPExpiresAt: new Date(Date.now() + 4 * 60 * 60 * 1000),
             startOTPVerified: false,
+            finalFare: booking.fareSnapshot,
           },
         ]);
         trip = t;
@@ -513,8 +535,32 @@ export class BookingService {
       bookingId,
     });
 
+    // Notify customer via Web Push Notification
+    import('./PushNotificationService').then(async ({ pushNotificationService }) => {
+      const driverDoc = await Driver.findById(driverId);
+      const vehicleDoc = await Vehicle.findOne({ assignedDriverId: driverId });
+      const vehicleText = vehicleDoc
+        ? `${vehicleDoc.brand || ''} ${vehicleDoc.vehicleModel || ''} (${vehicleDoc.registrationNumber})`.trim()
+        : 'Taxi';
+
+      pushNotificationService
+        .notifyCustomerTripUpdate(booking.customerId.toString(), {
+          title: '🚕 Captain Assigned!',
+          body: `${driverDoc?.name || 'Captain'} has accepted your ride. Vehicle: ${vehicleText}. Your start OTP is ${startOTP}.`,
+          type: 'DRIVER_ASSIGNED',
+          bookingId: booking.id,
+          status: 'DRIVER_ASSIGNED',
+          driverName: driverDoc?.name,
+          vehicleInfo: vehicleText,
+        })
+        .catch((err) => logger.warn('Failed to deliver customer push notification', err));
+    }).catch(() => {});
+
     logger.info(`Driver ${driverId} accepted trip ${tripNumber}`);
-    return trip!;
+    const populatedTrip = await Trip.findById(trip!._id)
+      .populate('bookingId')
+      .populate('customerId', 'name phone');
+    return (populatedTrip as any) || trip!;
   }
 
   async declineTrip(driverId: string, bookingId: string): Promise<void> {

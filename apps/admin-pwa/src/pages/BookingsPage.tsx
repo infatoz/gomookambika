@@ -895,7 +895,7 @@ export function BookingsPage() {
               <Alert
                 type="warning"
                 showIcon
-                message="Live Active Booking"
+                title="Live Active Booking"
                 description="This ride is currently active in dispatch. Deleting it will immediately terminate the trip, release the assigned driver, and update customer and driver apps."
                 className="rounded-xl"
               />

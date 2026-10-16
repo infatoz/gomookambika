@@ -62,8 +62,11 @@ interface UberSearchCardProps {
   onChangePickupText: (text: string) => void;
   dropText: string;
   onChangeDropText: (text: string) => void;
+  selectedPickupLoc?: LocationOption | null;
+  selectedDropLoc?: LocationOption | null;
   onSelectDropLocation: (loc: LocationOption) => void;
   onSelectPickupLocation: (loc: LocationOption) => void;
+  onSwapLocations?: () => void;
   onSelectRoute?: (
     pickup: LocationOption,
     drop: LocationOption,
@@ -116,8 +119,11 @@ export function UberSearchCard({
   onChangePickupText,
   dropText,
   onChangeDropText,
+  selectedPickupLoc,
+  selectedDropLoc,
   onSelectDropLocation,
   onSelectPickupLocation,
+  onSwapLocations,
   onSelectRoute,
   locations,
   fixedRoutes = [],
@@ -138,9 +144,16 @@ export function UberSearchCard({
     : locations;
 
   const handleSwap = () => {
-    const temp = pickupText;
+    if (onSwapLocations) {
+      onSwapLocations();
+      return;
+    }
+    const tempText = pickupText;
+    const tempLoc = selectedPickupLoc;
     onChangePickupText(dropText || 'Kollur Sri Mookambika Temple');
-    onChangeDropText(temp);
+    onChangeDropText(tempText);
+    if (selectedDropLoc) onSelectPickupLocation(selectedDropLoc);
+    if (tempLoc) onSelectDropLocation(tempLoc);
   };
 
   return (

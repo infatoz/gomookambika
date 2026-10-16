@@ -12,3 +12,4 @@ export * from './Trip';
 export * from './User';
 export * from './Vehicle';
 export * from './VehicleCategory';
+export * from './PushSubscription';

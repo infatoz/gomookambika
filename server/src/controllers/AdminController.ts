@@ -12,6 +12,7 @@ import { AuditLog } from '@/models/AuditLog';
 import { qrService } from '@/services/QRService';
 import { errors } from '@/middlewares/errorHandler';
 import { logger } from '@/utils/logger';
+import { normalizePhone } from '@/utils/phone';
 import {
   UserRole,
   UserStatus,
@@ -128,22 +129,145 @@ export class AdminController {
     const filter: Record<string, unknown> = {};
     const status = qStr(req.query.status);
     const search = qStr(req.query.search);
-    if (status) filter.status = status;
+    const vehicleAssigned = qStr(req.query.vehicleAssigned);
+    const taxiStandId = qStr(req.query.taxiStandId);
+    const sortBy = qStr(req.query.sortBy) || 'createdAt';
+    const sortOrder = qStr(req.query.sortOrder) === 'asc' ? 1 : -1;
+
+    // Status filter
+    if (status && status !== 'ALL') {
+      if (status === 'ACTIVE' || status === 'ONLINE') {
+        filter.status = {
+          $in: [
+            DriverStatus.AVAILABLE,
+            DriverStatus.IN_QUEUE,
+            DriverStatus.ON_TRIP,
+            DriverStatus.TRIP_ACCEPTED,
+            DriverStatus.TRIP_OFFERED,
+          ],
+        };
+      } else if (status.includes(',')) {
+        filter.status = { $in: status.split(',').map((s) => s.trim()) };
+      } else {
+        filter.status = status;
+      }
+    }
+
+    // Search filter
     if (search) {
       filter.$or = [
         { name: { $regex: search, $options: 'i' } },
         { phone: { $regex: search, $options: 'i' } },
         { driverCode: { $regex: search, $options: 'i' } },
+        { licenseNumber: { $regex: search, $options: 'i' } },
       ];
     }
 
-    const [drivers, total] = await Promise.all([
-      Driver.find(filter).skip(skip).limit(limit).sort({ createdAt: -1 }),
+    // Vehicle Assignment filter
+    if (vehicleAssigned === 'ASSIGNED') {
+      const assignedIds = await Vehicle.distinct('assignedDriverId', {
+        assignedDriverId: { $ne: null },
+      });
+      filter._id = { $in: assignedIds };
+    } else if (vehicleAssigned === 'UNASSIGNED') {
+      const assignedIds = await Vehicle.distinct('assignedDriverId', {
+        assignedDriverId: { $ne: null },
+      });
+      filter._id = { $nin: assignedIds };
+    }
+
+    // Taxi stand filter
+    if (taxiStandId && taxiStandId !== 'ALL') {
+      if (taxiStandId === 'IN_QUEUE') {
+        filter.activeQueueEntryId = { $ne: null };
+      } else if (taxiStandId === 'NOT_IN_QUEUE') {
+        filter.activeQueueEntryId = null;
+      } else {
+        const driversAtStand = await QueueEntry.distinct('driverId', {
+          taxiStandId,
+          status: { $in: [QueueEntryStatus.WAITING, QueueEntryStatus.OFFERED] },
+        });
+        filter._id = { $in: driversAtStand };
+      }
+    }
+
+    const sortObj: Record<string, 1 | -1> = { [sortBy]: sortOrder };
+
+    const [rawDrivers, total, counts] = await Promise.all([
+      Driver.find(filter)
+        .populate('activeQueueEntryId', 'taxiStandId position status joinedAt')
+        .populate('activeTripId', 'bookingNumber status pickupLocation dropLocation')
+        .skip(skip)
+        .limit(limit)
+        .sort(sortObj),
       Driver.countDocuments(filter),
+      Driver.aggregate([
+        {
+          $group: {
+            _id: '$status',
+            count: { $sum: 1 },
+          },
+        },
+      ]),
     ]);
+
+    // Fetch assigned vehicles for these drivers
+    const driverIds = rawDrivers.map((d) => d._id);
+    const vehicles = await Vehicle.find({ assignedDriverId: { $in: driverIds } })
+      .populate('categoryId', 'name code')
+      .lean();
+
+    const vehicleMap = new Map();
+    for (const v of vehicles) {
+      if (v.assignedDriverId) {
+        vehicleMap.set(v.assignedDriverId.toString(), v);
+      }
+    }
+
+    // Attach assignedVehicle and populate stand name
+    const drivers = await Promise.all(
+      rawDrivers.map(async (d) => {
+        const doc = d.toObject();
+        const assignedVehicle = vehicleMap.get(d._id.toString());
+        if (assignedVehicle) {
+          (doc as any).assignedVehicle = {
+            _id: assignedVehicle._id,
+            registrationNumber: assignedVehicle.registrationNumber,
+            brand: assignedVehicle.brand,
+            vehicleModel: assignedVehicle.vehicleModel,
+            category: (assignedVehicle.categoryId as any)?.name || 'Cab',
+          };
+        }
+
+        if (doc.activeQueueEntryId && typeof (doc.activeQueueEntryId as any).taxiStandId === 'string') {
+          const stand = await TaxiStand.findById((doc.activeQueueEntryId as any).taxiStandId).select('name code');
+          if (stand) {
+            (doc.activeQueueEntryId as any).taxiStand = stand;
+          }
+        }
+
+        return doc;
+      })
+    );
+
+    // Compute stats map
+    const statusCounts: Record<string, number> = {
+      TOTAL: 0,
+      AVAILABLE: 0,
+      IN_QUEUE: 0,
+      ON_TRIP: 0,
+      OFFLINE: 0,
+      SUSPENDED: 0,
+    };
+
+    counts.forEach((c: { _id: string; count: number }) => {
+      statusCounts[c._id] = c.count;
+      statusCounts.TOTAL += c.count;
+    });
 
     res.json({
       success: true,
+      stats: statusCounts,
       ...buildPaginatedResponse(drivers, total, page, limit),
     });
   }
@@ -153,18 +277,132 @@ export class AdminController {
       .populate('userId', 'phone email status')
       .populate('activeQueueEntryId');
     if (!driver) throw errors.notFound('Driver');
-    res.json({ success: true, data: driver });
+
+    const doc = driver.toObject();
+    const assignedVehicle = await Vehicle.findOne({ assignedDriverId: driver._id })
+      .populate('categoryId', 'name code');
+    if (assignedVehicle) {
+      (doc as any).assignedVehicle = {
+        _id: assignedVehicle._id,
+        registrationNumber: assignedVehicle.registrationNumber,
+        brand: assignedVehicle.brand,
+        vehicleModel: assignedVehicle.vehicleModel,
+        category: (assignedVehicle.categoryId as any)?.name || 'Cab',
+      };
+    }
+
+    res.json({ success: true, data: doc });
   }
 
   async updateDriver(req: Request, res: Response): Promise<void> {
-    const driver = await Driver.findByIdAndUpdate(req.params.id, req.body, {
+    const driver = await Driver.findById(req.params.id);
+    if (!driver) throw errors.notFound('Driver');
+
+    const data: Record<string, any> = { ...req.body };
+
+    // 1. Phone Update & Uniqueness Validation
+    if (data.phone && data.phone !== driver.phone) {
+      const normalizedPhone = normalizePhone(data.phone);
+      const rawDigits = data.phone.replace(/\D/g, '').slice(-10);
+
+      // Check for conflict with another driver
+      const conflictingDriver = await Driver.findOne({
+        _id: { $ne: driver._id },
+        $or: [
+          { phone: normalizedPhone },
+          { phone: data.phone },
+          ...(rawDigits ? [{ phone: rawDigits }, { phone: `+91${rawDigits}` }] : []),
+        ],
+      });
+      if (conflictingDriver) {
+        throw errors.conflict('Another driver with this phone number already exists');
+      }
+
+      // Check for conflict with another user account
+      if (driver.userId) {
+        const conflictingUser = await User.findOne({
+          _id: { $ne: driver.userId },
+          $or: [
+            { phone: normalizedPhone },
+            { phone: data.phone },
+            ...(rawDigits ? [{ phone: rawDigits }, { phone: `+91${rawDigits}` }] : []),
+          ],
+        });
+        if (conflictingUser) {
+          throw errors.conflict('Another user account with this phone number already exists');
+        }
+      }
+
+      data.phone = normalizedPhone;
+    }
+
+    // 2. Synchronize linked User account (phone, name, email, status)
+    if (driver.userId) {
+      const userUpdates: Record<string, any> = {};
+      if (data.name) userUpdates.name = data.name;
+      if (data.phone) userUpdates.phone = data.phone;
+      if (data.email !== undefined) userUpdates.email = data.email || undefined;
+      if (data.status) {
+        userUpdates.status = ['INACTIVE', 'SUSPENDED'].includes(data.status)
+          ? UserStatus.INACTIVE
+          : UserStatus.ACTIVE;
+      }
+      if (Object.keys(userUpdates).length > 0) {
+        await User.findByIdAndUpdate(driver.userId, userUpdates);
+      }
+    }
+
+    // 3. Normalize Date fields safely
+    if (data.licenseExpiry) {
+      data.licenseExpiry = new Date(data.licenseExpiry);
+    } else if (data.licenseExpiry === '' || data.licenseExpiry === null) {
+      delete data.licenseExpiry;
+    }
+
+    if (data.joiningDate) {
+      data.joiningDate = new Date(data.joiningDate);
+    } else if (data.joiningDate === '' || data.joiningDate === null) {
+      delete data.joiningDate;
+    }
+
+    // 4. Sanitize Address
+    if (data.address) {
+      data.address = {
+        line1: data.address.line1 !== undefined ? data.address.line1.trim() : (driver.address?.line1 || 'Kollur'),
+        line2: data.address.line2 !== undefined ? data.address.line2.trim() : (driver.address?.line2 || ''),
+        city: data.address.city !== undefined ? data.address.city.trim() : (driver.address?.city || 'Kollur'),
+        state: data.address.state !== undefined ? data.address.state.trim() : (driver.address?.state || 'Karnataka'),
+        pincode: data.address.pincode !== undefined ? data.address.pincode.trim() : (driver.address?.pincode || '576220'),
+        country: data.address.country !== undefined ? data.address.country.trim() : (driver.address?.country || 'India'),
+      };
+    }
+
+    // 5. Handle Vehicle Assignment if provided
+    if ('assignedVehicleId' in data) {
+      const targetVehicleId = data.assignedVehicleId;
+      delete data.assignedVehicleId;
+
+      // Unassign existing vehicles currently assigned to this driver
+      await Vehicle.updateMany(
+        { assignedDriverId: driver._id },
+        { $unset: { assignedDriverId: 1 } }
+      );
+
+      // If a non-empty vehicle id was provided, assign this vehicle to the driver
+      if (targetVehicleId && typeof targetVehicleId === 'string' && targetVehicleId.trim() !== '') {
+        await Vehicle.findByIdAndUpdate(targetVehicleId, { assignedDriverId: driver._id });
+      }
+    }
+
+    // 6. Update Driver Document
+    const updatedDriver = await Driver.findByIdAndUpdate(driver._id, data, {
       new: true,
       runValidators: true,
     });
-    if (!driver) throw errors.notFound('Driver');
+    if (!updatedDriver) throw errors.notFound('Driver');
 
-    await this.logAudit(req, 'UPDATE', 'drivers', String(req.params.id), driver);
-    res.json({ success: true, message: 'Driver updated successfully', data: driver });
+    await this.logAudit(req, 'UPDATE', 'drivers', String(driver._id), updatedDriver);
+    res.json({ success: true, message: 'Driver updated successfully', data: updatedDriver });
   }
 
   async updateDriverStatus(req: Request, res: Response): Promise<void> {
@@ -196,13 +434,15 @@ export class AdminController {
         { registrationNumber: { $regex: search, $options: 'i' } },
         { brand: { $regex: search, $options: 'i' } },
         { vehicleModel: { $regex: search, $options: 'i' } },
+        { ownerName: { $regex: search, $options: 'i' } },
+        { ownerPhone: { $regex: search, $options: 'i' } },
       ];
     }
 
     const [vehicles, total] = await Promise.all([
       Vehicle.find(filter)
-        .populate('categoryId', 'name code')
-        .populate('assignedDriverId', 'name phone')
+        .populate('categoryId', 'name code seatCapacity luggageCapacity')
+        .populate('assignedDriverId', 'name phone driverCode licenseNumber')
         .skip(skip)
         .limit(limit)
         .sort({ createdAt: -1 }),
@@ -213,13 +453,27 @@ export class AdminController {
   }
 
   async createVehicle(req: Request, res: Response): Promise<void> {
-    const vehicle = await Vehicle.create(req.body);
+    const data = { ...req.body };
+    if (!data.assignedDriverId || data.assignedDriverId === '') {
+      delete data.assignedDriverId;
+    }
+    if (!data.ownerPhone || data.ownerPhone === '') {
+      delete data.ownerPhone;
+    }
+    const vehicle = await Vehicle.create(data);
     await this.logAudit(req, 'CREATE', 'vehicles', vehicle.id, vehicle);
     res.status(201).json({ success: true, message: 'Vehicle created', data: vehicle });
   }
 
   async updateVehicle(req: Request, res: Response): Promise<void> {
-    const vehicle = await Vehicle.findByIdAndUpdate(req.params.id, req.body, { new: true });
+    const data = { ...req.body };
+    if (data.assignedDriverId === '') {
+      data.assignedDriverId = null;
+    }
+    if (data.ownerPhone === '') {
+      data.ownerPhone = null;
+    }
+    const vehicle = await Vehicle.findByIdAndUpdate(req.params.id, data, { new: true });
     if (!vehicle) throw errors.notFound('Vehicle');
     await this.logAudit(req, 'UPDATE', 'vehicles', req.params.id, vehicle);
     res.json({ success: true, message: 'Vehicle updated', data: vehicle });
@@ -301,6 +555,11 @@ export class AdminController {
     }
     if (latitude !== undefined && longitude !== undefined && !isNaN(Number(latitude)) && !isNaN(Number(longitude))) {
       locationData.geoPoint = { type: 'Point', coordinates: [Number(longitude), Number(latitude)] };
+    } else if (req.body.geoPoint?.coordinates?.length === 2) {
+      locationData.geoPoint = {
+        type: 'Point',
+        coordinates: [Number(req.body.geoPoint.coordinates[0]), Number(req.body.geoPoint.coordinates[1])],
+      };
     }
     const location = await Location.create(locationData);
     await this.logAudit(req, 'CREATE', 'locations', location.id, location);
@@ -318,8 +577,13 @@ export class AdminController {
         throw errors.conflict(`A location with code "${codeUpper}" already exists. Please choose a different code.`);
       }
     }
-    if (latitude !== undefined && longitude !== undefined) {
-      update.geoPoint = { type: 'Point', coordinates: [longitude, latitude] };
+    if (latitude !== undefined && longitude !== undefined && !isNaN(Number(latitude)) && !isNaN(Number(longitude))) {
+      update.geoPoint = { type: 'Point', coordinates: [Number(longitude), Number(latitude)] };
+    } else if (req.body.geoPoint?.coordinates?.length === 2) {
+      update.geoPoint = {
+        type: 'Point',
+        coordinates: [Number(req.body.geoPoint.coordinates[0]), Number(req.body.geoPoint.coordinates[1])],
+      };
     }
     const location = await Location.findByIdAndUpdate(req.params.id, update, { new: true });
     if (!location) throw errors.notFound('Location');

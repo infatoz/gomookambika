@@ -277,6 +277,13 @@ export interface FareBreakdown {
   nightCharge: number;
   driverAllowance: number;
   serviceFee: number;
+  platformFee?: number;
+  platformFeeEnabled?: boolean;
+  platformFeeType?: 'FIXED' | 'PERCENTAGE';
+  platformFeeName?: string;
+  taxEnabled?: boolean;
+  taxRate?: number;
+  taxName?: string;
   discount: number;
   tax: number;
   total: number;
@@ -336,6 +343,40 @@ export interface DocumentRecord {
   verified: boolean;
   verifiedBy?: string;
   verifiedAt?: Date | string;
+}
+
+export interface VehicleRecord {
+  _id: string;
+  registrationNumber: string;
+  categoryId: string | { _id: string; name: string; code?: string; maxSeats?: number; maxLuggage?: number; image?: string };
+  brand: string;
+  vehicleModel: string;
+  variant?: string;
+  manufacturingYear: number;
+  color: string;
+  fuelType: FuelType | string;
+  seatCapacity: number;
+  luggageCapacity: number;
+  ac: boolean;
+  ownerName: string;
+  ownerPhone?: string;
+  assignedDriverId?: string | { _id: string; name: string; phone: string; driverCode: string };
+  status: VehicleStatus | string;
+  documents?: DocumentRecord[];
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface AssociationSettings {
+  platformName: string;
+  registrationNumber: string;
+  supportPhone: string;
+  supportEmail: string;
+  officeAddress: string;
+  operatingRegion: string;
+  emergencySosContact?: string;
+  lostAndFoundHelpline?: string;
+  nightTravelAdvisory?: string;
 }
 
 export interface SavedLocation {
@@ -412,6 +453,7 @@ export enum SocketEvent {
 
 export interface TripOfferPayload {
   bookingId: string;
+  bookingNumber?: string;
   tripId: string;
   pickupLocation: CustomerLocation;
   dropLocation?: CustomerLocation;
@@ -421,6 +463,8 @@ export interface TripOfferPayload {
   vehicleCategory: string;
   scheduledAt?: string;
   timeoutSeconds: number;
+  customerName?: string;
+  customerPhone?: string;
 }
 
 export interface DriverLocationPayload {
